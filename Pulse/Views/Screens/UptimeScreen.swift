@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The UPTIME screen: the Levo Studio service list with a status square per row,
-/// the time of the last successful check, and a countdown to the next one.
+/// the time the API last checked those services, and a countdown to the next refresh.
 ///
 /// The list is refreshed every 20 seconds, but only while this screen is the one in
 /// view and the app is in the foreground. Both the countdown and the poll schedule
@@ -322,11 +322,19 @@ final class UptimeModel {
     /// A description of the last failed refresh, or `nil` when the last one succeeded.
     private(set) var faultText: String?
 
-    /// When the last check completed, successfully or not. Drives the countdown.
+    /// When the last request completed, successfully or not. Drives the countdown.
     private var lastAttempt: Date?
 
-    /// When the displayed list was last successfully fetched.
-    private var lastSuccess: Date?
+    /// The newest `lastCheckedAt` across the displayed projects.
+    ///
+    /// This is the API's own clock, not the device's. `LAST CHECK` reports when the
+    /// monitoring service last observed the states on screen, which is what the
+    /// squares actually mean; when the app last asked is an implementation detail of
+    /// this display and is already implied by the refresh countdown beside it. The
+    /// newest of the projects is used because the line answers "when was a check last
+    /// performed"; per-project staleness is not drawn, so the two figures are never
+    /// shown side by side unlabelled.
+    private var lastCheckedAt: Date?
 
     /// Re-read on every loop pass so the countdown ticks without a stored counter.
     private var now = Date()
@@ -380,10 +388,11 @@ final class UptimeModel {
         promptNotice = .firstUse
     }
 
-    /// The time of the last successful check, or placeholder dashes before the first.
+    /// The time the API last checked the projects on screen, in the device's time
+    /// zone, or placeholder dashes when it has reported none.
     var lastCheckText: String {
-        guard let lastSuccess else { return "--:--:--" }
-        return Self.clockFormatter.string(from: lastSuccess)
+        guard let lastCheckedAt else { return "--:--:--" }
+        return Self.clockFormatter.string(from: lastCheckedAt)
     }
 
     /// Whole seconds left until the next poll, derived from the last attempt.
@@ -452,7 +461,7 @@ final class UptimeModel {
             let fetched = try await client.services(key: key)
             services = fetched
             lastAttempt = Date()
-            lastSuccess = lastAttempt
+            lastCheckedAt = fetched.compactMap(\.lastCheckedAt).max()
             faultText = nil
         } catch is CancellationError {
             // Paged away mid-request: leave the schedule untouched so returning to
@@ -466,7 +475,7 @@ final class UptimeModel {
             // when the user saves a new value.
             services = []
             lastAttempt = nil
-            lastSuccess = nil
+            lastCheckedAt = nil
             faultText = nil
             promptNotice = .keyRejected
             needsKey = true
