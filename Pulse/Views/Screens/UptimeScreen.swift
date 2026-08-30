@@ -347,8 +347,12 @@ final class UptimeModel {
     /// line is a live countdown from the moment the screen appears, as in the reference.
     var secondsUntilRefresh: Int {
         guard let lastAttempt else { return Int(Self.pollInterval) }
-        let remaining = Self.pollInterval - now.timeIntervalSince(lastAttempt)
-        return max(0, Int(remaining.rounded(.up)))
+        // Elapsed time is clamped at zero so the countdown can never read higher than
+        // the interval: `now` is sampled by the loop and is momentarily older than the
+        // attempt that has just completed, and a backwards system clock would do the
+        // same thing more durably.
+        let elapsed = max(0, now.timeIntervalSince(lastAttempt))
+        return max(0, Int((Self.pollInterval - elapsed).rounded(.up)))
     }
 
     /// Stores a user-supplied key and resumes polling.

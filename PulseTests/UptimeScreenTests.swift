@@ -173,6 +173,10 @@ struct UptimeModelTests {
         #expect(model.services == [UptimeService(name: "API-GATEWAY", status: .operational)])
         #expect(model.faultText == nil)
         #expect(model.lastCheckText != "--:--:--")
+        // The countdown must never read above the interval, whatever the relationship
+        // between the sampled clock and the attempt that has just completed.
+        #expect(model.secondsUntilRefresh <= 20)
+        #expect(model.secondsUntilRefresh >= 0)
     }
 }
 
