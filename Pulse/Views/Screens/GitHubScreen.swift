@@ -537,7 +537,6 @@ final class GitHubActivityModel {
     /// cancelling the prompt never touches it.
     ///
     /// - Returns: `true` when the name reached the Keychain.
-    @discardableResult
     func save(username name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard GitHubContributionsClient.isValidUsername(trimmed) else { return false }

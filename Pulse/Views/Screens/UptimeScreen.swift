@@ -408,7 +408,6 @@ final class UptimeModel {
     /// cleared field behind a button that appears to do nothing.
     ///
     /// - Returns: `true` when the key reached the Keychain.
-    @discardableResult
     func store(key: String) -> Bool {
         guard keychain.set(key, for: .uptimeAPIKey) else {
             promptNotice = .storageFailed
