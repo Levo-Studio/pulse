@@ -5,7 +5,11 @@ import Foundation
 /// Only the base URL is hardcoded. The bearer key belongs to the user, is entered on
 /// first use, and lives in the Keychain; it is passed in per request and is never
 /// logged, stored in this type, or included in any error.
-public struct UptimeAPIClient: Sendable {
+///
+/// Declared `nonisolated`: the project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION =
+/// MainActor`, so without this the request and the decode of its response would both
+/// be pinned to the main actor.
+nonisolated public struct UptimeAPIClient: Sendable {
 
     /// Why a request did not produce a list of services.
     public enum Failure: Error, Equatable, Sendable {

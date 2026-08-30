@@ -2,7 +2,11 @@ import Foundation
 
 /// The state of a single monitored service, as displayed by the status square on
 /// the uptime screen.
-public enum UptimeStatus: String, Sendable, CaseIterable {
+///
+/// Declared `nonisolated`: the project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION =
+/// MainActor`, so without this every type in this file would be main-actor isolated
+/// and the response parse would run on the main actor behind the display.
+nonisolated public enum UptimeStatus: String, Sendable, CaseIterable {
 
     /// The service is up.
     case operational
@@ -18,7 +22,7 @@ public enum UptimeStatus: String, Sendable, CaseIterable {
 }
 
 /// One row of the uptime list: a service name and its current state.
-public struct UptimeService: Sendable, Equatable {
+nonisolated public struct UptimeService: Sendable, Equatable {
 
     /// The name shown on the left of the row.
     public let name: String
@@ -51,7 +55,7 @@ public struct UptimeService: Sendable, Equatable {
 ///
 /// Once the real shape is known this is a one-line correction: add the actual key to
 /// the relevant list, or replace these lookups with concrete `CodingKeys`.
-public enum UptimeResponseDecoder {
+nonisolated public enum UptimeResponseDecoder {
 
     /// Object keys that may wrap the list of services.
     public static let envelopeKeys = [
@@ -178,7 +182,7 @@ public enum UptimeResponseDecoder {
 
 /// A minimal JSON tree, used so the decoder can inspect a body whose shape is not
 /// known ahead of time without resorting to `JSONSerialization` casts.
-enum JSONValue: Decodable {
+nonisolated enum JSONValue: Decodable {
 
     case string(String)
     case number(Double)
