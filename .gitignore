@@ -16,3 +16,6 @@ xcuserdata/
 # Secrets — never commit
 .env
 .env.*
+
+# Agent worktrees and local tooling state
+.claude/
