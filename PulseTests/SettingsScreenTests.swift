@@ -47,15 +47,42 @@ struct SettingsScreenTests {
         #expect(model.isUptimeKeyStored)
         #expect(model.uptimeKeyDetail == "SET")
 
-        // The row says only that a key exists. Not the key, not a prefix of it, not
-        // its length — every substring of the stored value long enough to be a
-        // recognisable fragment is absent from what the screen draws.
-        let drawn = model.uptimeKeyDetail
-        #expect(!drawn.contains(Self.stored))
-        for start in Self.stored.indices {
-            guard let end = Self.stored.index(start, offsetBy: 4, limitedBy: Self.stored.endIndex) else { break }
-            #expect(!drawn.lowercased().contains(Self.stored[start..<end].lowercased()))
+        // And the key is not held anywhere on the model either. Asserting against the
+        // one string the row draws could not fail — `SET` cannot contain a key — so
+        // the whole object is walked instead. This is the assertion that bites when
+        // someone adds a `storedKey` property to fill in a richer row: it fails on the
+        // property existing, before any view is written to draw it.
+        for value in Self.strings(in: model) {
+            #expect(!value.contains(Self.stored))
         }
+    }
+
+    /// Every string reachable from `subject` by reflection, one level of nesting deep.
+    ///
+    /// Deep enough to see a stored property holding a credential, whether it is held
+    /// directly, in an optional, or in a small wrapper. `@Observable` keeps its stored
+    /// properties as ordinary backing fields, so they are visible here.
+    private static func strings(in subject: Any) -> [String] {
+        var found: [String] = []
+        for child in Mirror(reflecting: subject).children {
+            if let text = child.value as? String {
+                found.append(text)
+                continue
+            }
+            for grandchild in Mirror(reflecting: child.value).children {
+                if let text = grandchild.value as? String { found.append(text) }
+            }
+        }
+        return found
+    }
+
+    @Test("The reflection guard would catch a credential held on the model")
+    func reflectionGuardBites() {
+        // The guard above is only worth its lines if it fails when it should, so the
+        // shape it is looking for is put in front of it here.
+        struct Careless { let key = SettingsScreenTests.stored }
+
+        #expect(Self.strings(in: Careless()).contains(Self.stored))
     }
 
     @Test("An absent key is reported as absent")
@@ -123,6 +150,31 @@ struct SettingsScreenTests {
         #expect(model.editing == nil)
         #expect(keychain.string(for: .uptimeAPIKey) == Self.stored)
         #expect(keychain.string(for: .gitHubUsername) == "octocat")
+    }
+
+    @Test("The uptime prompt is told why it is open, and told when a write succeeds")
+    func uptimeNoticeFollowsTheEdit() {
+        let keychain = makeStore()
+        defer { keychain.remove(.uptimeAPIKey) }
+
+        let model = SettingsModel(keychain: keychain)
+        model.readStoredState()
+
+        // Nothing stored yet: the prompt is a first-use prompt, with no notice.
+        model.beginEditing(.uptimeKey)
+        #expect(model.uptimeNotice == .firstUse)
+
+        #expect(model.save(uptimeKey: Self.stored))
+        #expect(model.uptimeNotice == .firstUse)
+
+        // With a key stored the prompt has to say the old one is kept until the new one
+        // is saved, exactly as the uptime screen's own route does.
+        model.beginEditing(.uptimeKey)
+        #expect(model.uptimeNotice == .replacing)
+
+        model.cancelEditing()
+        #expect(model.uptimeNotice == .firstUse)
+        #expect(keychain.string(for: .uptimeAPIKey) == Self.stored)
     }
 
     @Test("A saved key overwrites the stored one and closes the prompt")
