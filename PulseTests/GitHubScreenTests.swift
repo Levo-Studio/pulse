@@ -126,9 +126,56 @@ struct GitHubActivityModelTests {
             await model.refresh(now: now)
 
             #expect(model.pullRequestLine == expected)
-            // Every wording stays inside the row the header budget allows.
-            #expect((model.pullRequestLine?.count ?? 0) <= GitHubHeaderRow.footerCharacterBudget)
         }
+    }
+
+    @Test("Double-digit counts still read correctly and still fit the line")
+    func doubleDigitCounts() async throws {
+        let store = makeStore()
+        defer { store.remove(.gitHubUsername) }
+
+        GitHubStubURLProtocol.reset()
+        GitHubStubURLProtocol.eventsBody = Data(
+            feed(pushedAt: "2026-08-30T09:23:30Z", opened: 12, merged: 10, on: "2026-08-30").utf8
+        )
+
+        let model = makeModel(store: store)
+        await model.refresh(now: try date("2026-08-30T12:00:00Z"))
+
+        // Thirty characters, against a worst-case character budget of 28 — which is why
+        // the line is checked by measuring it rather than by counting it. Digits are
+        // 0.75 em and spaces 0.625, nowhere near the 0.875 the budget assumes.
+        let line = try #require(model.pullRequestLine)
+        #expect(line == "PUBLIC PR: 12 OPENED 10 MERGED")
+        #expect(line.count == 30)
+        #expect(GitHubLabelMeasurement.width(of: line, size: 10, tracking: 2)
+            <= GitHubHeaderRow.contentWidth)
+    }
+
+    @Test("A push from an earlier day never reaches the line", arguments: [true, false])
+    func stalePushIsNotRendered(hasPullRequests: Bool) async throws {
+        let store = makeStore()
+        defer { store.remove(.gitHubUsername) }
+
+        GitHubStubURLProtocol.reset()
+        GitHubStubURLProtocol.eventsBody = Data(
+            feed(
+                pushedAt: "2026-08-29T18:42:00Z",
+                opened: hasPullRequests ? 1 : 0,
+                merged: 0,
+                on: "2026-08-30"
+            ).utf8
+        )
+
+        let model = makeModel(store: store)
+        await model.refresh(now: try date("2026-08-30T09:40:00Z"))
+
+        // Yesterday's push, on a screen that says COMMITS TODAY and carries no date.
+        #expect(model.activity?.lastPushAt == nil)
+        #expect(model.lastCommitLine == nil)
+        // The rest of the block is unaffected: one source of silence is not another's.
+        #expect((model.pullRequestLine != nil) == hasPullRequests)
+        #expect(model.lastCheckLine != nil)
     }
 
     @Test("The freshness line reports the older source, never the newer one")
@@ -322,8 +369,28 @@ struct GitHubHeaderRowTests {
         #expect(GitHubHeaderRow.characterWidth == (10 * 0.875) + 2)
         // Eight characters of HH:mm:ss, three more than the reference's HH:mm.
         #expect(GitHubHeaderRow.timeWidth == 8 * GitHubHeaderRow.characterWidth)
-        #expect(GitHubHeaderRow.gapWidth == 16)
-        #expect(GitHubHeaderRow.characterBudget == 19)
+        #expect(GitHubHeaderRow.characterBudget == 18)
+    }
+
+    @Test("The gap the row reserves is the gap the layout actually spends")
+    func gapWidthIsMeasured() {
+        // The quantity, not the constant: a stack laid out exactly like the header row,
+        // with the two labels replaced by blocks of a known width. Asserting the
+        // constant against itself is how a missing gap survives a test suite.
+        let block = CGFloat(10)
+        let row = HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Color.clear.frame(width: block, height: block)
+            Spacer(minLength: 8)
+            Color.clear.frame(width: block, height: block)
+        }
+
+        let controller = UIHostingController(rootView: row)
+        let ideal = controller.sizeThatFits(in: CGSize(width: .max, height: .max))
+
+        // The spacer is a subview, so the stack's spacing lands on both sides of it and
+        // the spacer's own minimum is additive: three gaps, not two.
+        #expect(ideal.width - (2 * block) == GitHubHeaderRow.gapWidth)
+        #expect(GitHubHeaderRow.gapWidth == 24)
     }
 
     @Test("A budget-length name plus the time and the gaps fits, one more does not")
@@ -337,6 +404,41 @@ struct GitHubHeaderRowTests {
             + GitHubHeaderRow.gapWidth
             + GitHubHeaderRow.timeWidth
         #expect(overlong > GitHubHeaderRow.contentWidth)
+
+        // And the same again as measured quantities rather than as the budget's own
+        // assumptions, so the row is checked against what it draws: a budget-length
+        // name of the widest glyph in the face, beside a real readout.
+        let name = GitHubLabelMeasurement.width(
+            of: String(repeating: "M", count: GitHubHeaderRow.characterBudget),
+            size: 10,
+            tracking: 2
+        )
+        let readout = GitHubLabelMeasurement.width(of: "23:59:59", size: 10, tracking: 2)
+        #expect(name + readout + GitHubHeaderRow.gapWidth <= GitHubHeaderRow.contentWidth)
+    }
+
+    @Test("Every line the footer can draw fits the content width when measured")
+    func footerLinesFitWhenMeasured() {
+        let lines = [
+            "LAST COMMIT AT: 23:59",
+            "PUBLIC PR OPENED: 12",
+            "PUBLIC PR MERGED: 12",
+            "PUBLIC PR: 12 OPENED 10 MERGED",
+            "NO SUCH USER - TAP TO CHANGE",
+            "OFFLINE - SHOWING LAST DATA",
+            "NO COUNT FOR TODAY"
+        ]
+
+        for line in lines {
+            let width = GitHubLabelMeasurement.width(of: line, size: 10, tracking: 2)
+            #expect(width <= GitHubHeaderRow.contentWidth, "\(line) is \(width) units wide")
+        }
+
+        // The freshness line is a size smaller than the rest of the block.
+        #expect(
+            GitHubLabelMeasurement.width(of: "LAST CHECK: 23:59:59", size: 9, tracking: 2)
+                <= GitHubHeaderRow.contentWidth
+        )
     }
 
     @Test("The longest username GitHub allows is shortened rather than left to overrun")
@@ -349,6 +451,35 @@ struct GitHubHeaderRowTests {
         let shortened = GitHubHeaderRow.displayName(for: longest)
         #expect(shortened.count == GitHubHeaderRow.characterBudget)
         #expect(shortened.hasSuffix(GitHubHeaderRow.truncationMarker))
+    }
+}
+
+/// Measures a line of display type as the screen actually draws it.
+///
+/// The header budget reserves the widest advance Silkscreen has for every character,
+/// which is right for a username of unknown composition and far too pessimistic for a
+/// line of known words and digits. Where the copy is fixed, measuring it is both tighter
+/// and closer to the truth.
+@MainActor
+enum GitHubLabelMeasurement {
+
+    /// Rendered width of `text`, in design-reference units.
+    static func width(of text: String, size: CGFloat, tracking: CGFloat) -> CGFloat {
+        PixelFont.register()
+
+        let label = PixelLabel(text, size: size, tracking: tracking, color: PixelTheme.primary)
+            .environment(
+                \.pixelMetrics,
+                PixelMetrics(
+                    size: CGSize(
+                        width: PixelMetrics.referenceWidth,
+                        height: PixelMetrics.referenceHeight
+                    )
+                )
+            )
+
+        let controller = UIHostingController(rootView: label)
+        return controller.sizeThatFits(in: CGSize(width: .max, height: .max)).width
     }
 }
 

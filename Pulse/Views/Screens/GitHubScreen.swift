@@ -277,15 +277,15 @@ enum GitHubHeaderRow {
     /// The readout is `HH:mm:ss`: eight characters.
     static let timeWidth: CGFloat = 8 * characterWidth
 
-    /// The gaps the row spends: the stack's own spacing and the spacer's minimum.
-    static let gapWidth: CGFloat = 8 + 8
-
-    /// How many characters fit on a line that has the content width to itself, which
-    /// is what every label in the block at the foot of the screen has.
+    /// The gaps the row spends: **three**, not two.
     ///
-    /// The wording of those lines is chosen against this, so none of them can overrun
-    /// the frame on the narrowest device whatever counts they carry.
-    static var footerCharacterBudget: Int { Int(contentWidth / characterWidth) }
+    /// The `Spacer` is a subview like any other, so `HStack(spacing: 8)` inserts its
+    /// spacing on both sides of it, and the spacer's own `minLength` is additive rather
+    /// than absorbing that spacing. A row of two 10 unit blocks around a spacer of
+    /// minimum length 8 is 44 units wide, not 36. Counting two gaps here would
+    /// under-reserve by a whole gap, and the shortfall would only surface the day the
+    /// worst-case character advance below is replaced with real glyph widths.
+    static let gapWidth: CGFloat = 8 + 8 + 8
 
     /// Width left for the username once the time and the gaps are paid for.
     static let nameWidthBudget: CGFloat = contentWidth - timeWidth - gapWidth
@@ -451,15 +451,20 @@ final class GitHubActivityModel {
 
     // MARK: - Event-sourced lines
 
-    /// The reference's `LAST COMMIT AT` line, or `nil` when the events window holds no
-    /// push.
+    /// The reference's `LAST COMMIT AT` line, or `nil` when there has been no public
+    /// push today.
     ///
-    /// Two honesty notes are baked into this. The feed timestamps the *push*, not the
-    /// authoring of the commit inside it, which is the closest a tokenless client can
-    /// get to the reference's wording. And the feed is public activity only, so a push
-    /// to a private repository leaves this line showing an older public one, or absent.
-    /// Absent is the deliberate choice over a placeholder: a dash where a time belongs
-    /// invites being read as a time.
+    /// Three honesty notes are baked into this. The line is scoped to today, like every
+    /// other figure on the screen: it carries no date, and it sits under a headline
+    /// that says `COMMITS TODAY`, so a time from earlier in the 90-day window would
+    /// read as today's. The feed timestamps the *push*, not the authoring of the commit
+    /// inside it, which is the closest a tokenless client can get to the reference's
+    /// wording. And the feed is public activity only, so a day spent in a private
+    /// repository leaves the line absent rather than late.
+    ///
+    /// Absent is the deliberate choice over a placeholder, and over a stale time: a
+    /// dash where a time belongs invites being read as a time, and a wrong time reads
+    /// more confidently still.
     var lastCommitLine: String? {
         guard let pushedAt = activity?.lastPushAt else { return nil }
         return "LAST COMMIT AT: \(Self.minuteFormatter.string(from: pushedAt))"
@@ -475,6 +480,12 @@ final class GitHubActivityModel {
     /// A day with no pull requests shows nothing rather than a zero. A zero would be a
     /// claim — "you merged nothing today" — that this source cannot support, since the
     /// work may simply have been private.
+    ///
+    /// The combined wording is the longest line the screen draws. Its rendered width is
+    /// pinned by a test that measures the label, including at double-digit counts,
+    /// rather than by a character count against a worst-case glyph advance: the counts
+    /// are digits and the words are known, so the real measurement is both tighter and
+    /// the one that matters.
     var pullRequestLine: String? {
         guard let activity, activity.hasPullRequestActivityToday else { return nil }
         let opened = activity.pullRequestsOpenedToday
