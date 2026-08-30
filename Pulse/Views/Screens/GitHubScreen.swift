@@ -2,10 +2,14 @@ import SwiftUI
 
 /// The GITHUB screen: today's commit count above a 17-week contribution heatmap.
 ///
-/// Laid out from the `03 GITHUB` frame of `design/Pulse.dc.html`. The reference's
-/// `LAST COMMIT AT` line is deliberately not implemented: the public contributions
-/// page exposes per-day totals only, never commit timestamps, and Pulse stores no
-/// GitHub token that would let it ask for more.
+/// Laid out from the `03 GITHUB` frame of `design/Pulse.dc.html`.
+///
+/// Two public sources feed it, and they are not interchangeable. The heatmap and the
+/// headline count come from the scraped contributions page, which has per-day totals
+/// and nothing finer. The reference's `LAST COMMIT AT` line, today's pull request
+/// activity and the freshness line come from the public events API, which has
+/// timestamps but sees public activity only. The two may legitimately disagree; the
+/// screen labels the event-sourced lines as public rather than reconciling them.
 public struct GitHubScreen: View {
 
     @Environment(\.activeScreen) private var activeScreen
@@ -67,11 +71,44 @@ public struct GitHubScreen: View {
                 axis
                     .padding(.top, metrics(16))
 
+                footer
+            }
+        }
+    }
+
+    /// The block of small labels below the heatmap axis.
+    ///
+    /// The reference has a single line here, `LAST COMMIT AT`, at a 46 unit gap. Pulse
+    /// can have up to four: the status line the screen already used this slot for, the
+    /// reference's own line, the invented pull request line, and the freshness line.
+    /// They stack at the reference's own 6 unit meta-line gap — the value the uptime
+    /// frame uses between `LAST CHECK` and `NEXT REFRESH` — so the block keeps the
+    /// rhythm of the design rather than inventing a second one, and the 46 unit gap
+    /// still separates it from the axis above.
+    @ViewBuilder
+    private var footer: some View {
+        if model.hasFooterContent {
+            VStack(alignment: .leading, spacing: metrics(6)) {
                 if let status = model.statusLine {
                     statusRow(status)
-                        .padding(.top, metrics(46))
+                }
+                if let line = model.lastCommitLine {
+                    // The reference's own line, in the reference's own colour.
+                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.muted)
+                }
+                if let line = model.pullRequestLine {
+                    // Invented, so it sits a step below the reference's line and well
+                    // below the headline count the screen is built around.
+                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.faint)
+                }
+                if let line = model.lastCheckLine {
+                    // Same wording and same treatment as the uptime screen's own
+                    // freshness line, so the two screens read as one system.
+                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.faint)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, metrics(46))
         }
     }
 
@@ -191,8 +228,29 @@ final class GitHubActivityModel {
     /// Why the last refresh failed, or `nil` when it succeeded.
     private(set) var lastFailure: GitHubContributionsClient.Failure?
 
+    /// What the public events feed last said about today, or `nil` before the first
+    /// successful fetch of it.
+    ///
+    /// Kept separate from `contributions` on purpose. The two come from different
+    /// sources with different visibility — the feed is public activity only, the
+    /// heatmap may include private contributions — so they are never merged into one
+    /// figure, and one source failing leaves the other on screen.
+    private(set) var activity: GitHubActivitySummary?
+
+    /// Why the last events fetch failed, or `nil` when it succeeded.
+    private(set) var eventsFailure: GitHubEventsClient.Failure?
+
+    /// When the events feed may be asked again after the hourly quota ran out.
+    ///
+    /// The unauthenticated quota is 60 requests an hour and is shared by every client
+    /// behind the same address, so it can be spent by someone else entirely. While it
+    /// is, the screen keeps showing the last good figures and does not retry — a retry
+    /// would only spend a request that is not there.
+    private var eventsBackoffUntil: Date?
+
     private let store: KeychainStore
     private let client: GitHubContributionsClient
+    private let eventsClient: GitHubEventsClient
 
     /// Creates the model.
     ///
@@ -200,9 +258,14 @@ final class GitHubActivityModel {
     /// dependencies are built inside the initialiser rather than as default arguments,
     /// because a default argument is evaluated in the caller's isolation and these are
     /// main-actor bound.
-    init(store: KeychainStore? = nil, client: GitHubContributionsClient? = nil) {
+    init(
+        store: KeychainStore? = nil,
+        client: GitHubContributionsClient? = nil,
+        eventsClient: GitHubEventsClient? = nil
+    ) {
         self.store = store ?? KeychainStore()
         self.client = client ?? GitHubContributionsClient()
+        self.eventsClient = eventsClient ?? GitHubEventsClient()
     }
 
     /// Whether the stored username has been looked up yet.
@@ -235,8 +298,10 @@ final class GitHubActivityModel {
 
     /// A short line describing a problem, or `nil` when the screen is healthy.
     ///
-    /// It occupies the slot the reference fills with `LAST COMMIT AT`, which Pulse
-    /// does not implement, and doubles as the way back to the username prompt.
+    /// It heads the block of small labels at the foot of the screen and doubles as the
+    /// way back to the username prompt. Only the contributions fetch is reported here:
+    /// a failed events fetch costs three subordinate lines, not the screen's subject,
+    /// and those lines simply do not appear.
     var statusLine: String? {
         switch lastFailure {
         case .none:
@@ -257,6 +322,71 @@ final class GitHubActivityModel {
         }
     }
 
+    // MARK: - Event-sourced lines
+
+    /// The reference's `LAST COMMIT AT` line, or `nil` when the events window holds no
+    /// push.
+    ///
+    /// Two honesty notes are baked into this. The feed timestamps the *push*, not the
+    /// authoring of the commit inside it, which is the closest a tokenless client can
+    /// get to the reference's wording. And the feed is public activity only, so a push
+    /// to a private repository leaves this line showing an older public one, or absent.
+    /// Absent is the deliberate choice over a placeholder: a dash where a time belongs
+    /// invites being read as a time.
+    var lastCommitLine: String? {
+        guard let pushedAt = activity?.lastPushAt else { return nil }
+        return "LAST COMMIT AT: \(Self.minuteFormatter.string(from: pushedAt))"
+    }
+
+    /// Today's public pull request activity, or `nil` when there was none.
+    ///
+    /// Not in the design reference — this line is an addition. It is written as
+    /// `PUBLIC` first so it cannot be read as an account-wide total: the feed behind it
+    /// never sees private repositories, while the heatmap above it can, and the two are
+    /// allowed to disagree.
+    ///
+    /// A day with no pull requests shows nothing rather than a zero. A zero would be a
+    /// claim — "you merged nothing today" — that this source cannot support, since the
+    /// work may simply have been private.
+    var pullRequestLine: String? {
+        guard let activity, activity.hasPullRequestActivityToday else { return nil }
+        let opened = activity.pullRequestsOpenedToday
+        let merged = activity.pullRequestsMergedToday
+
+        switch (opened, merged) {
+        case (0, let merged):
+            return "PUBLIC PR MERGED: \(merged)"
+        case (let opened, 0):
+            return "PUBLIC PR OPENED: \(opened)"
+        default:
+            return "PUBLIC PR: \(opened) OPENED \(merged) MERGED"
+        }
+    }
+
+    /// When the data on screen was last fetched, in the uptime screen's own wording.
+    ///
+    /// It reports the **older** of the two sources' successes, never the newer and
+    /// never the last attempt. Both feeds can lag — GitHub's events by a few minutes —
+    /// so the one guarantee worth making is that nothing on screen is older than this
+    /// line says.
+    var lastCheckLine: String? {
+        let stamps = [
+            contributions.isEmpty ? nil : contributions.fetchedAt,
+            activity?.fetchedAt
+        ].compactMap { $0 }
+
+        guard let oldest = stamps.min() else { return nil }
+        return "LAST CHECK: \(Self.secondFormatter.string(from: oldest))"
+    }
+
+    /// Whether any line belongs in the block at the foot of the screen.
+    var hasFooterContent: Bool {
+        statusLine != nil || lastCommitLine != nil || pullRequestLine != nil
+            || lastCheckLine != nil
+    }
+
+    // MARK: - Fetching
+
     /// Stores `name` in the Keychain and drops any data belonging to the old account.
     func save(username name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -266,11 +396,23 @@ final class GitHubActivityModel {
         username = trimmed
         contributions = .empty
         lastFailure = nil
+        activity = nil
+        eventsFailure = nil
+        eventsBackoffUntil = nil
     }
 
-    /// Fetches the calendar for the stored username.
-    func refresh() async {
+    /// Refreshes both sources for the stored username.
+    ///
+    /// They are fetched in sequence and reported separately: neither failure clears the
+    /// other's data, so a rate-limited events feed leaves the heatmap intact and an
+    /// unparsable contributions page leaves the event-sourced lines intact.
+    func refresh(now: Date = Date()) async {
         guard let username else { return }
+        await refreshContributions(for: username)
+        await refreshActivity(for: username, now: now)
+    }
+
+    private func refreshContributions(for username: String) async {
         do {
             contributions = try await client.calendar(for: username)
             lastFailure = nil
@@ -280,6 +422,44 @@ final class GitHubActivityModel {
             lastFailure = .unreachable
         }
     }
+
+    private func refreshActivity(for username: String, now: Date) async {
+        if let backoff = eventsBackoffUntil, now < backoff { return }
+        eventsBackoffUntil = nil
+
+        do {
+            let events = try await eventsClient.events(for: username)
+            activity = GitHubActivitySummary(events: events, now: now, fetchedAt: now)
+            eventsFailure = nil
+        } catch let failure as GitHubEventsClient.Failure {
+            eventsFailure = failure
+            if case .rateLimited(let resetAt) = failure {
+                // An unknown reset is waited out for a full quota window rather than
+                // guessed at, which is still only one skipped poll at this cadence.
+                eventsBackoffUntil = resetAt ?? now.addingTimeInterval(3600)
+            }
+        } catch {
+            eventsFailure = .unreachable
+        }
+    }
+
+    /// `HH:mm` for the event-sourced commit time. Fixed pattern and POSIX locale like
+    /// the rest of the display, so the readout is 24-hour regardless of device
+    /// settings; the time zone is the device's, so a UTC timestamp reads as local time.
+    private static let minuteFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    /// `HH:mm:ss` for the freshness line, matching the uptime screen's readout.
+    private static let secondFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 }
 
 #Preview {
