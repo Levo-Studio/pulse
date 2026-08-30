@@ -10,6 +10,12 @@ import Testing
 /// overwrite it. A user who taps `CHANGE API KEY`, thinks better of it and cancels
 /// must not lose the key they still depend on.
 ///
+/// Only the uptime cancel is covered here, because only it exists as a model
+/// transition. The GitHub prompt is dismissed by the view alone and the model is
+/// never asked to do anything, so there is nothing a test could drive: a case
+/// asserting the stored name afterwards would only restate what the save cases
+/// already establish, and could not fail.
+///
 /// Every item is written under a service identifier unique to the test and removed
 /// afterwards, so the user's own Keychain items are never read or altered. The values
 /// are obvious placeholders, not credentials.
@@ -114,22 +120,6 @@ struct CredentialChangeTests {
         model.restoreUsername()
 
         #expect(!model.save(username: "not a valid name"))
-        #expect(model.username == "octocat")
-        #expect(keychain.string(for: .gitHubUsername) == "octocat")
-    }
-
-    @Test("Abandoning a username change leaves the stored name untouched")
-    @MainActor
-    func gitHubCancelKeepsTheStoredUsername() {
-        let keychain = makeStore()
-        #expect(keychain.set("octocat", for: .gitHubUsername))
-        defer { keychain.remove(.gitHubUsername) }
-
-        let model = GitHubActivityModel(store: keychain)
-        model.restoreUsername()
-
-        // Cancelling is a view-level dismissal: the model is not asked to do anything,
-        // which is exactly the property that matters — nothing can clear the item.
         #expect(model.username == "octocat")
         #expect(keychain.string(for: .gitHubUsername) == "octocat")
     }
