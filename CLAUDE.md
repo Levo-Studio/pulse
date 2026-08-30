@@ -14,7 +14,7 @@ theme switch.
 | # | Screen | Content |
 |---|---|---|
 | 1 | Clock | Large pixel-font time, date below it, local temperature with a condition indicator below that |
-| 2 | Stopwatch | `00:00:00` readout, double-tap to start/stop, small time-of-day readout below |
+| 2 | Stopwatch | `00:00:00` readout, double-tap to start/stop, triple-tap to reset, small time-of-day readout below |
 | 3 | GitHub | Commits-today number and contribution heatmap |
 | 4 | Uptime | List of Levo Studio projects with status dots, last check time, countdown to next refresh |
 
