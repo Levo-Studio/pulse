@@ -86,7 +86,7 @@ public enum GitHubContributionsParser {
         for tag in matches(of: dayCellExpression, in: html) {
             guard let cell = capture(1, of: tag, in: html),
                   cell.contains("ContributionCalendar-day"),
-                  let date = attribute("data-date", in: cell),
+                  let date = attribute(dateExpression, in: cell),
                   date.count == 10 else {
                 continue
             }
@@ -94,8 +94,8 @@ public enum GitHubContributionsParser {
             cells.append(
                 DayCell(
                     date: date,
-                    identifier: attribute("id", in: cell),
-                    level: attribute("data-level", in: cell).flatMap(Int.init)
+                    identifier: attribute(identifierExpression, in: cell),
+                    level: attribute(levelExpression, in: cell).flatMap(Int.init)
                 )
             )
         }
@@ -135,13 +135,11 @@ public enum GitHubContributionsParser {
     // MARK: - Attributes
 
     /// Reads a double-quoted attribute value out of a single tag's source.
-    private static func attribute(_ name: String, in tag: String) -> String? {
-        guard let expression = try? NSRegularExpression(
-            pattern: "\\b\(NSRegularExpression.escapedPattern(for: name))=\"([^\"]*)\"",
-            options: []
-        ) else {
-            return nil
-        }
+    private static func attribute(
+        _ expression: NSRegularExpression?,
+        in tag: String
+    ) -> String? {
+        guard let expression else { return nil }
         let range = NSRange(tag.startIndex..<tag.endIndex, in: tag)
         guard let match = expression.firstMatch(in: tag, options: [], range: range),
               let value = Range(match.range(at: 1), in: tag) else {
@@ -164,6 +162,18 @@ public enum GitHubContributionsParser {
         pattern: "<tool-tip\\b[^>]*\\bfor=\"([^\"]+)\"[^>]*>([^<]*)</tool-tip>",
         options: [.caseInsensitive]
     )
+
+    /// Attribute patterns, compiled once rather than once per attribute per cell.
+    private static let dateExpression = attributeExpression(named: "data-date")
+    private static let identifierExpression = attributeExpression(named: "id")
+    private static let levelExpression = attributeExpression(named: "data-level")
+
+    private static func attributeExpression(named name: String) -> NSRegularExpression? {
+        try? NSRegularExpression(
+            pattern: "\\b\(NSRegularExpression.escapedPattern(for: name))=\"([^\"]*)\"",
+            options: []
+        )
+    }
 
     private static func matches(
         of expression: NSRegularExpression?,
