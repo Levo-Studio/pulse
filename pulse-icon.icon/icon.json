@@ -1,7 +1,17 @@
 {
-  "fill" : {
-    "automatic-gradient" : "srgb:0.95686,0.95686,0.94902,1.00000"
-  },
+  "fill-specializations" : [
+    {
+      "value" : {
+        "automatic-gradient" : "extended-gray:0.00000,1.00000"
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "automatic-gradient" : "extended-gray:0.00000,1.00000"
+      }
+    }
+  ],
   "groups" : [
     {
       "layers" : [
@@ -9,7 +19,7 @@
           "fill-specializations" : [
             {
               "value" : {
-                "solid" : "extended-gray:0.00000,1.00000"
+                "solid" : "extended-gray:1.00000,1.00000"
               }
             },
             {
@@ -25,6 +35,7 @@
               }
             }
           ],
+          "glass" : true,
           "image-name" : "pulse-logo-black 2.png",
           "name" : "pulse-logo-black 2",
           "position" : {

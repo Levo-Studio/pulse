@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Silkscreen:wght@400;700&display=swap" rel="stylesheet"><style>body{margin:0;background:#111213;font-family:'Silkscreen',ui-monospace,monospace}a{color:#8b8f92;text-decoration:none}a:hover{color:#fff}</style></helmet>
+
+<div style="padding:52px 56px 72px;display:flex;flex-direction:column;gap:64px;background:#111213;box-sizing:border-box">
+
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap">
+    <span style="font-size:20px;color:#e8eaea;letter-spacing:1px">PULSE</span>
+    <span style="font-size:10px;color:rgba(255,255,255,.3);letter-spacing:1.6px">AMBIENT PIXEL DISPLAY / NO GLOW</span>
+  </div>
+
+  <section id="1b" style="display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font-size:10px;letter-spacing:1.4px;color:#0A0A0A;background:#c9cccd;padding:4px 7px;border-radius:3px">1B</span>
+      <span style="font-size:11px;color:rgba(255,255,255,.42);letter-spacing:1.6px">PURE BLACK &amp; WHITE</span>
+    </div>
+
+    <div style="display:flex;gap:36px;flex-wrap:wrap;align-items:flex-start">
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.26)">01 CLOCK</div>
+        <div style="width:360px;height:780px;background:#000;border:7px solid #1b1d1e;border-radius:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;overflow:hidden;box-sizing:border-box">
+          <div style="font-size:70px;line-height:1;color:#fff;letter-spacing:2px">14:32</div>
+          <div style="font-size:16px;color:#525252;letter-spacing:5px">FR 30 AUG</div>
+          <div style="font-size:16px;color:#525252;letter-spacing:5px;margin-top:26px">21&deg;C</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.26)">02 STOPWATCH</div>
+        <div style="width:360px;height:780px;background:#000;border:7px solid #1b1d1e;border-radius:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;overflow:hidden;box-sizing:border-box">
+          <div style="font-size:48px;line-height:1;color:#fff;letter-spacing:2px">00:00:00</div>
+          <div style="font-size:14px;color:#3d3d3d;letter-spacing:4px;margin-top:2px">14:32</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.26)">03 GITHUB</div>
+        <div style="width:360px;height:780px;background:#000;border:7px solid #1b1d1e;border-radius:48px;display:flex;flex-direction:column;padding:70px 26px 0;overflow:hidden;box-sizing:border-box">
+          <div style="display:flex;align-items:baseline;justify-content:space-between">
+            <div style="font-size:10px;color:#e6e6e6;letter-spacing:2px">JUSTTHATRANDOMCODER</div>
+            <div style="font-size:10px;color:#3d3d3d;letter-spacing:2px">14:32</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;margin-top:96px">
+            <div style="font-size:76px;line-height:1;color:#fff;letter-spacing:1px">12</div>
+            <div style="font-size:11px;color:#525252;letter-spacing:4px;margin-top:14px">COMMITS TODAY</div>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(17,1fr);gap:5px;width:100%;margin-top:110px">
+            <sc-for list="{{ heatMono }}" as="c" hint-placeholder-count="119">
+              <div style="aspect-ratio:1;background:{{ c.a }};outline:{{ c.o }};outline-offset:1px"></div>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;width:100%;margin-top:16px;font-size:9px;color:#3d3d3d;letter-spacing:2px">
+            <span>17 WEEKS</span><span style="color:#fff">TODAY</span>
+          </div>
+          <div style="font-size:10px;color:#525252;letter-spacing:2px;margin-top:46px">LAST COMMIT AT: 13:58</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.26)">04 UPTIME</div>
+        <div style="width:360px;height:780px;background:#000;border:7px solid #1b1d1e;border-radius:48px;display:flex;flex-direction:column;padding:70px 26px 0;overflow:hidden;box-sizing:border-box">
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <div style="font-size:10px;color:#3d3d3d;letter-spacing:2px">LAST CHECK: 14:32:05</div>
+            <div style="font-size:10px;color:#3d3d3d;letter-spacing:2px">NEXT REFRESH: 17S</div>
+          </div>
+          <div style="display:flex;flex-direction:column;margin-top:54px">
+            <sc-for list="{{ servicesMono }}" as="s" hint-placeholder-count="7">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 0;border-bottom:1px solid #1c1c1c">
+                <span style="font-size:13px;color:#e6e6e6;letter-spacing:2px">{{ s.name }}</span>
+                <span style="width:11px;height:11px;background:{{ s.a }};border:{{ s.b }};flex:none"></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.26)">APP LOGO</div>
+        <div style="display:flex;gap:18px">
+          <div style="width:150px;height:150px;background:#000;border:1px solid #1b1d1e;display:grid;place-items:center">
+            <div style="display:grid;grid-template-columns:repeat(3,26px);grid-template-rows:repeat(3,26px);gap:6px">
+              <span></span><span style="background:#fff;border-radius:5px"></span><span></span>
+              <span style="background:#fff;border-radius:5px"></span><span style="background:#fff;border-radius:5px"></span><span style="background:#fff;border-radius:5px"></span>
+              <span></span><span style="background:#fff;border-radius:5px"></span><span></span>
+            </div>
+          </div>
+          <div style="width:150px;height:150px;background:#fff;border:1px solid #1b1d1e;display:grid;place-items:center">
+            <div style="display:grid;grid-template-columns:repeat(3,26px);grid-template-rows:repeat(3,26px);gap:6px">
+              <span></span><span style="background:#000;border-radius:5px"></span><span></span>
+              <span style="background:#000;border-radius:5px"></span><span style="background:#000;border-radius:5px"></span><span style="background:#000;border-radius:5px"></span>
+              <span></span><span style="background:#000;border-radius:5px"></span><span></span>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;justify-content:center">
+            <button onClick="{{ dlWhite }}" style="font-family:'Silkscreen',monospace;font-size:9px;letter-spacing:1.4px;color:#e6e6e6;background:transparent;border:1px solid #2c2f30;padding:9px 12px;cursor:pointer" style-hover="border-color:#6e7273">PNG WHITE</button>
+            <button onClick="{{ dlBlack }}" style="font-family:'Silkscreen',monospace;font-size:9px;letter-spacing:1.4px;color:#e6e6e6;background:transparent;border:1px solid #2c2f30;padding:9px 12px;cursor:pointer" style-hover="border-color:#6e7273">PNG BLACK</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:2100,&quot;height&quot;:1900}}">
+class Component extends DCLogic {
+  heatData(mono) {
+    const lv = mono
+      ? ['#141414', '#3d3d3d', '#6e6e6e', '#a3a3a3', '#ffffff']
+      : ['#151718', '#0e4b57', '#12798c', '#1aabc4', '#22D3EE'];
+    const out = [];
+    let seed = 7;
+    for (let i = 0; i < 118; i++) {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      const r = seed / 2147483648;
+      const idx = r < 0.34 ? 0 : r < 0.55 ? 1 : r < 0.75 ? 2 : r < 0.91 ? 3 : 4;
+      out.push({ a: lv[idx], o: 'none' });
+    }
+    // today: intensity scales with today's commit count (12 -> highest step)
+    const commits = 12;
+    const step = commits === 0 ? 0 : commits < 3 ? 1 : commits < 6 ? 2 : commits < 10 ? 3 : 4;
+    const today = ['#123a20', '#166534', '#199c48', '#22c55e', '#4ade80'][step];
+    out.push({ a: today, o: 'none' });
+    return out;
+  }
+  downloadLogo(fill, name) {
+    const S = 1024, cells = 3, gapRatio = 6 / 26;
+    const cell = S / (cells + (cells - 1) * gapRatio);
+    const gap = cell * gapRatio, r = cell * 0.19;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const g = c.getContext('2d');
+    g.fillStyle = fill;
+    const cross = [[1,0],[0,1],[1,1],[2,1],[1,2]];
+    cross.forEach(([x, y]) => {
+      const px = x * (cell + gap), py = y * (cell + gap);
+      g.beginPath();
+      g.moveTo(px + r, py);
+      g.arcTo(px + cell, py, px + cell, py + cell, r);
+      g.arcTo(px + cell, py + cell, px, py + cell, r);
+      g.arcTo(px, py + cell, px, py, r);
+      g.arcTo(px, py, px + cell, py, r);
+      g.closePath();
+      g.fill();
+    });
+    const a = document.createElement('a');
+    a.href = c.toDataURL('image/png');
+    a.download = name;
+    a.click();
+  }
+  renderVals() {
+    const names = ['API-GATEWAY', 'WEB-FRONTEND', 'POSTGRES-01', 'REDIS-CACHE', 'WORKER-QUEUE', 'K3S-CLUSTER', 'BACKUP-JOB'];
+    const color = ['#22C55E', '#22C55E', '#22C55E', '#F59E0B', '#22C55E', '#EF4444', '#2a2d2e'];
+    const monoFill = color;
+    const monoBorder = ['none', 'none', 'none', 'none', 'none', 'none', 'none'];
+    return {
+      dlWhite: () => this.downloadLogo('#ffffff', 'pulse-logo-white.png'),
+      dlBlack: () => this.downloadLogo('#0A0A0A', 'pulse-logo-black.png'),
+      heat: this.heatData(false),
+      heatMono: this.heatData(true),
+      services: names.map((name, i) => ({ name, a: color[i] })),
+      servicesMono: names.map((name, i) => ({ name, a: monoFill[i], b: monoBorder[i] }))
+    };
+  }
+}
+</script>
+</body>
+</html>
