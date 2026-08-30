@@ -23,6 +23,15 @@ public struct GitHubScreen: View {
     /// Creates the screen.
     public init() {}
 
+    /// Creates the screen around a model that is already prepared.
+    ///
+    /// Used to render the screen with known data — by the layout checks that verify the
+    /// block of small labels still fits the shortest supported device, and by previews.
+    /// The screen's own behaviour is identical either way.
+    init(model: GitHubActivityModel) {
+        _model = State(initialValue: model)
+    }
+
     public var body: some View {
         Group {
             if !model.hasRestoredUsername {
