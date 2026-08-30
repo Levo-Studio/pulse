@@ -132,7 +132,8 @@ minute and coming back triggers one refresh rather than replaying missed ticks.
 The countdown is computed entirely client-side.
 
 Failures are reported as what they were, in a line under the countdown:
-`CONNECTION FAILED`, `SERVER ERROR: 500`, `UNREADABLE RESPONSE`. A `401`
+`CONNECTION FAILED`, `SERVER ERROR: 500`, `UNREADABLE RESPONSE`, and
+`REFRESH FAILED` for anything that fits none of those. A `401`
 re-prompts for the key, but **does not delete the stored one** — it may be the
 user's only copy of a long opaque token, and a single transient `401` during a
 deploy must not destroy it; the item is overwritten only when a new value is
@@ -197,10 +198,11 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
-22 tests in 3 suites, written with Swift Testing. They cover the uptime response
-decoder against the shapes it might be handed, the row-truncation arithmetic, and
-the model's failure paths — a rejected key re-prompting without deleting the
-stored one, a `403` not being mistaken for a rejected key, and a server error
+33 tests in 5 suites, written with Swift Testing. They cover the GitHub
+contributions parser against the markup shapes it might be handed, the pixel
+label's line box, the uptime response decoder, the row-truncation arithmetic, and
+the uptime model's failure paths — a rejected key re-prompting without deleting
+the stored one, a `403` not being mistaken for a rejected key, and a server error
 being reported as itself rather than as a connection failure. Nothing in the
 suite touches the network or the user's own Keychain items; the store and the API
 client are injected.
@@ -228,7 +230,8 @@ another device and do not leave in a backup.
 
 ## Architecture
 
-SwiftUI throughout, no third-party code. Four directories under `Pulse/`, and the
+SwiftUI throughout, no third-party code. Four source directories under `Pulse/`
+(alongside `Resources/` and `Assets.xcassets/`), and the
 split between them is enforced:
 
 | Directory | Contents |
@@ -236,12 +239,13 @@ split between them is enforced:
 | `Models/` | Value types only, **no I/O**. `ClockReading` (two formatted strings), `StopwatchState` (start timestamp plus accumulated interval), `ContributionDay` / `ContributionCalendar` / `ContributionIntensity`, `UptimeService` / `UptimeStatus` and the `UptimeResponseDecoder` that builds them. |
 | `Services/` | Networking, Keychain, parsing, timers. `GitHubContributionsClient`, `GitHubContributionsParser`, `UptimeAPIClient`, `KeychainStore`, `ClockTicker`. Nothing here imports SwiftUI views. |
 | `PixelRendering/` | The shared display vocabulary: `PixelFont` (font registration and lookup), `PixelTheme` (the palette), `PixelLabel`, `PixelMetrics`, `ContributionHeatmapGrid`. |
-| `Views/` | `PulsePager` plus one file per screen under `Views/Screens/`. |
+| `Views/` | `PulsePager`, plus the screens under `Views/Screens/` — one file per screen, and the prompts a screen needs alongside them (`GitHubUsernamePrompt.swift`). |
 
 `design/` holds the design reference and its runtime. It is read-only as far as
 app work is concerned — never edited to make an implementation match. `docs/`
-holds the logo and the animated illustrations used by this README, and nothing
-the app itself ships.
+holds the brand assets and the animated illustrations this README uses, and
+nothing the app itself ships. The logo PNGs there are kept as brand assets; the
+README itself draws the mark from `pulse-mark.svg`.
 
 Because the project uses file-system synchronized groups, a new file dropped
 anywhere under `Pulse/` is picked up automatically; `project.pbxproj` does not
@@ -357,20 +361,31 @@ completely ordinary.
 
 So the design decision is deliberate and worth keeping if you touch this code:
 
-- A level-derived count **may shade a heatmap cell**, and only when a single
-  isolated cell's tooltip is missing. Every day carries an `isCountExact` flag,
-  and the headline number is read from `exactCount(on:)`, which returns `nil` for
-  an approximated day. The screen shows `--` rather than a number it cannot stand
+- A level-derived count **may shade a heatmap cell**, and only when at most
+  **three** day cells across the whole calendar are missing a tooltip
+  (`levelFallbackBudget`). Every day carries an `isCountExact` flag, and the
+  headline number is read from `exactCount(on:)`, which returns `nil` for an
+  approximated day. The screen shows `--` rather than a number it cannot stand
   behind.
-- If **no** tooltips parse at all, or tooltips cover fewer than half the day
-  cells, the parser returns **nothing** rather than a full year of level-derived
-  guesses.
+- If **no** tooltips parse at all, the parser returns nothing. If more than three
+  day cells are missing one, it returns **only the days it has exact figures
+  for** — the cells it cannot vouch for are dropped rather than filled in from
+  their level.
 
 The point of that second rule is the failure mode. Without it, a tooltip change
 would leave the day cells parsing perfectly and the screen would confidently
-display a year of fabricated numbers. With it, the same change surfaces as a
-**visible parse failure** — `NO DATA - TAP TO CHANGE` — which is honest, and which
-is the signal that this section of the README has come due.
+display a year of fabricated numbers. With it, a wholesale change surfaces as a
+**visible parse failure** — `NO DATA - TAP TO CHANGE` — and a partial one simply
+leaves the unverifiable days out, so today's headline falls back to `--` and
+`NO COUNT FOR TODAY` rather than to a plausible invention. Either way it is
+honest, and either way it is the signal that this section of the README has come
+due.
+
+The budget is a fixed three cells rather than a proportion on purpose: a
+proportional limit would let the rule quietly stop meaning what it says. At half
+the calendar it would fabricate a hundred and eighty days from account-relative
+levels and shade the heatmap from them without a word. Three is a handful of
+cells GitHub failed to annotate — not a markup change wearing a disguise.
 
 Nothing in the parser traps. Every match is optional, nothing is force-unwrapped,
 and unrecognised markup yields an empty result that the screen renders as an empty
