@@ -62,7 +62,8 @@ public struct ClockScreen: View {
             // swiping between screens is unaffected.
             .contentShape(Rectangle())
             .onTapGesture(count: 2) { preferences.showsSeconds.toggle() }
-            .accessibilityLabel(preferences.showsSeconds ? "Time with seconds" : "Time")
+            // The readout itself stays the accessibility label — replacing it with
+            // the word "Time" would cost a VoiceOver user the value they came for.
             .accessibilityHint("Double tap to show or hide seconds")
 
             PixelLabel(
