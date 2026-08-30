@@ -14,6 +14,13 @@ public struct ClockReading: Equatable, Sendable {
     /// Time of day as `HH:mm`, 24-hour.
     public let time: String
 
+    /// Time of day as `HH:mm:ss`, 24-hour.
+    ///
+    /// Shown instead of `time` when the user has double-tapped the clock to reveal
+    /// seconds. Both are formatted from the same instant, so the two forms can
+    /// never disagree about the minute.
+    public let timeWithSeconds: String
+
     /// Date as a two-letter weekday, day of month, and three-letter month —
     /// for example `FR 30 AUG`.
     public let date: String
@@ -21,8 +28,9 @@ public struct ClockReading: Equatable, Sendable {
     /// Creates a reading from already-formatted strings.
     ///
     /// Used by previews and tests; the app formats from an instant instead.
-    public init(time: String, date: String) {
+    public init(time: String, timeWithSeconds: String, date: String) {
         self.time = time
+        self.timeWithSeconds = timeWithSeconds
         self.date = date
     }
 
@@ -32,6 +40,7 @@ public struct ClockReading: Equatable, Sendable {
         let dayMonth = Self.formatter(pattern: "dd MMM").string(from: instant)
 
         self.time = Self.formatter(pattern: "HH:mm").string(from: instant)
+        self.timeWithSeconds = Self.formatter(pattern: "HH:mm:ss").string(from: instant)
         self.date = "\(weekday) \(dayMonth)".uppercased()
     }
 
@@ -56,7 +65,7 @@ public struct ClockReading: Equatable, Sendable {
     /// once a minute, so the allocation is irrelevant, and a fresh instance
     /// cannot be mutated from two threads or hold a stale time zone.
     ///
-    /// Patterns in use: `HH:mm` for the time; `EEE` for the weekday, trimmed to
+    /// Patterns in use: `HH:mm` and `HH:mm:ss` for the time; `EEE` for the weekday, trimmed to
     /// two letters by the caller so the result does not depend on the shorter
     /// `EEEEEE` symbol; `dd MMM` for the date, zero-padded so the line keeps a
     /// constant width and the centred layout does not shift on single-digit days.

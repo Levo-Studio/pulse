@@ -13,7 +13,7 @@ theme switch.
 
 | # | Screen | Content |
 |---|---|---|
-| 1 | Clock | Large pixel-font time, date below it |
+| 1 | Clock | Large pixel-font time, date below it, local temperature with a condition indicator below that |
 | 2 | Stopwatch | `00:00:00` readout, double-tap to start/stop, small time-of-day readout below |
 | 3 | GitHub | Commits-today number and contribution heatmap |
 | 4 | Uptime | List of Levo Studio projects with status dots, last check time, countdown to next refresh |
@@ -28,6 +28,18 @@ Behavioural requirements:
 - On first use the GitHub screen asks the user for their own GitHub username, and the
   Uptime screen asks for their own API key. Both are stored in the **Keychain**, never in
   `UserDefaults`, never in a plist, never in source.
+- The Clock screen has two display preferences, both toggled by a double tap and both
+  stored in `UserDefaults` under a `clock.` prefix — never the Keychain, which is reserved
+  for credentials:
+  - a double tap on the **time** switches between `HH:mm` and `HH:mm:ss`, and the ticker's
+    wake-up cadence follows, going back to minute-boundary scheduling when seconds are
+    hidden. Default off.
+  - a double tap on the **weather line** hides or shows the condition indicator. The
+    temperature stays either way. Default on.
+
+  Each gesture is scoped with its own `contentShape`, so neither can trigger the other, and
+  a tap gesture yields to the pager's horizontal drag so swiping between screens still
+  works.
 
 ---
 
@@ -57,7 +69,7 @@ Screen surface and type:
 | Screen background | `#000000` | All four screens |
 | Primary text | `#FFFFFF` | Clock time, stopwatch time, commit count |
 | Bright label | `#E6E6E6` | GitHub username, uptime service names |
-| Secondary label | `#525252` | Date, "COMMITS TODAY", "LAST COMMIT AT" |
+| Secondary label | `#525252` | Date, clock temperature and its condition indicator, "COMMITS TODAY", "LAST COMMIT AT" |
 | Tertiary label | `#3D3D3D` | Time-of-day readout, "LAST CHECK", "NEXT REFRESH", axis labels |
 | Row separator | `#1C1C1C` | Uptime list row bottom border |
 
@@ -68,8 +80,10 @@ Type scale, at the reference frame width of 360 pt:
 
 | Element | Size | Letter spacing |
 |---|---|---|
-| Clock time | 70 | 2 |
+| Clock time, `HH:mm` | 70 | 2 |
+| Clock time, `HH:mm:ss` | 48 | 2 |
 | Clock date | 16 | 5 |
+| Clock temperature | 16 | 5 |
 | Stopwatch time | 48 | 2 |
 | Stopwatch time-of-day | 14 | 4 |
 | GitHub commit count | 76 | 1 |
@@ -109,9 +123,6 @@ bloom, or `.shadow(...)` to any display element.
 
 Carry these forward; do not silently resolve them.
 
-- The Clock frame shows a third line, `21°C`, below the date. No weather source is
-  specified anywhere in the brief and the app stores no weather API credential. It is
-  **not implemented**; the Clock screen ships as time plus date only.
 - The GitHub frame shows `LAST COMMIT AT: 13:58`. The contributions page exposes only
   per-day totals, so the line is sourced from the public events API instead (see §3),
   from the newest public push **of today**. Two caveats stand: the feed timestamps the
@@ -125,6 +136,20 @@ Carry these forward; do not silently resolve them.
   deviation, requested explicitly by the repository owner** — not an oversight and not a
   transcription error. Do not "correct" it back to `HH:MM`. The one-second ticker behind
   it runs only while the screen is visible and the app is foregrounded.
+- The Clock's `HH:mm:ss` readout is set at **48**, not the reference's 70. This is forced,
+  not a preference: measured from the bundled face, Silkscreen advances its wide digits
+  0.75 em and its colon 0.375 em, so `HH:mm:ss` at 70 is **383.5** reference units against
+  a content width of **308** — the 360 unit frame less 26 units of padding either side,
+  which is also the narrowest budget any supported display offers. It overruns by 75.5
+  units and `PixelLabel` neither wraps nor compresses, so it would run off both edges.
+  48 is **the size the reference itself gives its own eight-character readout**, the
+  stopwatch's `00:00:00`, so the two agree and the number is the design's rather than an
+  invention; it measures 268. The `HH:mm` readout keeps the reference's 70 untouched.
+  Sizes in the low fifties also fit arithmetically — the ceiling is 55.6 — and were not
+  used because none of them appears in the design and the largest scrape the limit.
+  The advance table lives in `ClockTimeMetrics` and is checked against the bundled font
+  through Core Text, not against hardcoded numbers, so it cannot quietly describe a font
+  the app does not ship.
 - The frames are drawn with a `7 px #1B1D1E` rounded border. That is device-bezel chrome in
   the canvas mock, not app UI. Do not draw a border inside the app.
 
@@ -205,6 +230,88 @@ Its limits are part of the contract and must be carried into anything built on i
   "today"; it must never be presented as a record of anything longer.
 - **Events lag reality by up to about five minutes**, which is why the screen states
   when it last fetched rather than implying live data.
+
+### Weather
+
+```
+GET https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code
+```
+
+Feeds the Clock screen's third line — the temperature the reference draws as `21°C`, and
+the condition indicator beside it.
+
+**Open-Meteo, and only Open-Meteo.** It needs **no API key, no account and no token**,
+which is why it was chosen: the rule above forbids a credential in source, in a plist or in
+git history, and this endpoint requires none. The base URL is the only thing hardcoded and
+the only thing there is. It is a European open-data service, which matters for this
+project's data-handling rules.
+
+Do not substitute WeatherKit, OpenWeatherMap, or anything else. WeatherKit in particular
+needs a paid-account entitlement the project does not have.
+
+- Response shape, verified against the live endpoint:
+
+  ```json
+  {
+    "current_units": { "temperature_2m": "°C", "weather_code": "wmo code" },
+    "current": { "time": "2026-08-30T09:00", "temperature_2m": 21.3, "weather_code": 3 }
+  }
+  ```
+
+- The **temperature unit is checked, not assumed.** Celsius is the service's default and
+  the request asks for nothing else, but the display draws a literal `°C`, so a response in
+  another unit is treated as malformed rather than mislabelled.
+- `weather_code` is a **WMO 4677** present-weather code, collapsed into six drawn
+  conditions — clear, cloudy, fog, rain, snow, thunderstorm. The mapping lives in exactly
+  one place, `WeatherCondition.init(wmoCode:)`, with its full table in that initialiser's
+  doc comment. Do not duplicate it. Freezing drizzle and freezing rain map to `rain`: the
+  indicator says what is falling, not what it does when it lands.
+- A **missing or unmapped code costs the indicator only.** The temperature is still shown.
+  An unknown code is never guessed at and never drawn as a question mark.
+- The indicator is **drawn as pixel art on the display's own grid** — an eight-by-seven
+  bitmap of flat square cells, in `PixelWeatherIcon`. **Not** an SF Symbol and **not** an
+  emoji: either would arrive with its own curves and colour beside a bitmap typeface and
+  read as pasted in from another app.
+- U+00B0 DEGREE SIGN **is present in the bundled Silkscreen face** — glyph 190, advance
+  0.625 em, drawn as a hollow square between 0.25 and 0.625 em above the baseline — so
+  `21°C` renders in the pixel typeface with no substitution and no fallback.
+
+Location:
+
+- Coordinates come from **CoreLocation at reduced accuracy** (`kCLLocationAccuracyReduced`).
+  A temperature to the nearest degree does not need a precise fix.
+- **When-in-use** authorisation only, requested the first time the Clock screen needs a
+  coordinate — never at launch. The usage string is the
+  `INFOPLIST_KEY_NSLocationWhenInUseUsageDescription` build setting; the project generates
+  its Info.plist and has no file to edit.
+- The coordinate is **coarsened to two decimal places** before it is sent, is held only for
+  the duration of one lookup, and is **never logged and never persisted**.
+
+Refresh and failure:
+
+- Fetch once when the Clock becomes the active screen, then every **30 minutes**. Open-Meteo
+  advances its `current` block on a 15 minute grid, the display shows whole degrees, and
+  two requests an hour is a courteous load on a free, unauthenticated service. Stops when
+  the screen is paged away and when the app leaves the foreground, like the Uptime poll.
+- The last reading is **cached across paging** so returning to the Clock does not blank the
+  line, and is dropped once it is three hours old.
+- **Every failure degrades to absence.** Refused authorisation, no fix, an unreachable
+  service, an unreadable body — the temperature line is simply not drawn and the Clock
+  renders exactly as time plus date. There is **no error text, no placeholder and no
+  dash**: the reference has no failure state for this line and an ambient display should
+  not nag. The time and the date are never blocked, delayed or degraded by weather or
+  location work.
+- The Clock's vertical gaps are stated as **top padding on each line rather than as stack
+  spacing**, because the reference does not space the three lines evenly: it sets `gap: 20`
+  on the container and adds `margin-top: 26` to the temperature alone. One shared spacing
+  value cannot say that. This is about expressing the reference, **not** about the absent
+  line — SwiftUI does not charge stack spacing for a conditional child whose condition is
+  false, so absence costs nothing under either arrangement. `ClockLayoutTests` renders both
+  and pins it.
+- The absence path is verified by **rendering the view and comparing pixels**
+  (`ClockLayoutTests`), not by eyeballing screenshots. Two screenshots of a running clock
+  are taken at different times and differ in the digits, which is exactly the slack that
+  hides a layout regression.
 
 ---
 
