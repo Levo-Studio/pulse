@@ -108,7 +108,10 @@ public struct GitHubScreen: View {
                 model.commitsToday.map(String.init) ?? "--",
                 size: 76,
                 tracking: 1,
-                color: PixelTheme.primary
+                color: PixelTheme.primary,
+                // `line-height: 1` in the reference: both the 96 units above the
+                // count and the 14 below it are measured from a one-em box.
+                lineBox: .tight
             )
             PixelLabel("COMMITS TODAY", size: 11, tracking: 4, color: PixelTheme.muted)
                 .padding(.top, metrics(14))
