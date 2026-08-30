@@ -116,9 +116,16 @@ public struct GitHubScreen: View {
                     PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.faint)
                 }
                 if let line = model.lastCheckLine {
-                    // Same wording and same treatment as the uptime screen's own
-                    // freshness line, so the two screens read as one system.
-                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.faint)
+                    // The uptime screen's wording, one size below its size. This line
+                    // and the header both carry an eight-character HH:MM:SS in the same
+                    // faint grey, and for the first minutes after every refresh they
+                    // read the identical value, so they are separated on every axis
+                    // that is left: this one is smaller, labelled, at the opposite
+                    // corner, and set off from the two data lines above it by a doubled
+                    // gap. Nine is also the reference's own smallest size, which is
+                    // what a line about the data rather than in it should be.
+                    PixelLabel(line, size: 9, tracking: 2, color: PixelTheme.faint)
+                        .padding(.top, metrics(6))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
