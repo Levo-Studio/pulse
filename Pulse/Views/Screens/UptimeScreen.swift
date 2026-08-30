@@ -186,7 +186,7 @@ private struct UptimeRow: View {
 /// palette and type scale as the rest of the screen rather than from a drawn source.
 /// The field is masked, the value goes straight to the Keychain, and it is never held
 /// anywhere else.
-private struct UptimeKeyPrompt: View {
+struct UptimeKeyPrompt: View {
 
     /// Why the prompt is being shown, which decides the line above the field.
     enum Notice: Equatable {
@@ -280,9 +280,14 @@ private struct UptimeKeyPrompt: View {
 /// Scheduling is timestamp-based. `lastAttempt` is the only clock the loop consults,
 /// so a screen that was paged away for a minute refreshes once on return rather than
 /// replaying missed ticks.
+///
+/// The Keychain store and the API client are injected, with the real ones as defaults,
+/// so the failure paths that matter — a rejected key leaving the stored one intact, a
+/// refused Keychain write — are reachable from tests without touching the network or
+/// the user's own item.
 @MainActor
 @Observable
-private final class UptimeModel {
+final class UptimeModel {
 
     /// Seconds between polls, per the brief.
     static let pollInterval: TimeInterval = 20
@@ -308,8 +313,8 @@ private final class UptimeModel {
     /// Re-read on every loop pass so the countdown ticks without a stored counter.
     private var now = Date()
 
-    private let keychain = KeychainStore()
-    private let client = UptimeAPIClient()
+    private let keychain: KeychainStore
+    private let client: UptimeAPIClient
 
     private static let clockFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -319,7 +324,14 @@ private final class UptimeModel {
         return formatter
     }()
 
-    init() {
+    /// Creates the model.
+    ///
+    /// - Parameters:
+    ///   - keychain: Where the API key is read from and written to.
+    ///   - client: The uptime API client.
+    init(keychain: KeychainStore = KeychainStore(), client: UptimeAPIClient = UptimeAPIClient()) {
+        self.keychain = keychain
+        self.client = client
         needsKey = keychain.string(for: .uptimeAPIKey) == nil
     }
 
@@ -380,7 +392,8 @@ private final class UptimeModel {
         return now.timeIntervalSince(lastAttempt) >= Self.pollInterval
     }
 
-    private func refresh() async {
+    /// Performs a single refresh, whatever the schedule says.
+    func refresh() async {
         guard let key = keychain.string(for: .uptimeAPIKey) else {
             needsKey = true
             return

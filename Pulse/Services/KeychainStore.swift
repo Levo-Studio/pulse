@@ -7,7 +7,12 @@ import Security
 /// Nothing here is ever written to `UserDefaults` or to a plist: the API key is a
 /// credential, and the username is entered by the user and kept beside it so both
 /// are removed together when the user resets the app.
-public struct KeychainStore {
+///
+/// Declared `nonisolated`: the project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION =
+/// MainActor`, so without this the store could not be constructed as a default
+/// argument or used off the main actor, though it only ever calls Security framework
+/// functions that are safe from any thread.
+nonisolated public struct KeychainStore {
 
     /// The items Pulse persists.
     public enum Key: String, CaseIterable, Sendable {
