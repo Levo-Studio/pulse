@@ -170,14 +170,18 @@ struct GitHubActivitySummaryTests {
         #expect(summary.pullRequestsMergedToday == 1)
     }
 
-    @Test("The newest push wins, whatever order the page arrives in")
-    func newestPush() throws {
+    @Test("The newest push of today wins, whatever order the page arrives in")
+    func newestPushToday() throws {
+        let lastWeek = try date("2026-08-23T22:00:00Z")
         let older = try date("2026-08-30T07:00:00Z")
         let newer = try date("2026-08-30T09:23:30Z")
         let summary = GitHubActivitySummary(
             events: [
                 GitHubEvent(kind: .push, createdAt: older),
                 GitHubEvent(kind: .push, createdAt: newer),
+                // Newer than neither, but the window is 90 days deep and this is the
+                // kind of entry an unscoped "newest push" would happily promote.
+                GitHubEvent(kind: .push, createdAt: lastWeek),
                 GitHubEvent(kind: .push, createdAt: older)
             ],
             now: newer,
@@ -186,6 +190,60 @@ struct GitHubActivitySummaryTests {
         )
 
         #expect(summary.lastPushAt == newer)
+    }
+
+    @Test("A push from an earlier day is not offered as today's, however recent the window")
+    func staleDayPushIsNotToday() throws {
+        // The only push in the window is yesterday's. The line it feeds carries no date
+        // and sits under a COMMITS TODAY headline, so yesterday's time must not appear
+        // there at all.
+        let yesterday = try date("2026-08-29T18:42:00Z")
+        let now = try date("2026-08-30T09:40:00Z")
+
+        let summary = GitHubActivitySummary(
+            events: [GitHubEvent(kind: .push, createdAt: yesterday)],
+            now: now,
+            calendar: calendar("Europe/Berlin"),
+            fetchedAt: now
+        )
+
+        #expect(summary.lastPushAt == nil)
+    }
+
+    @Test("The push day boundary is the device's local midnight, not UTC's")
+    func pushBoundaryFollowsTheDeviceZone() throws {
+        // 2026-08-30T23:30Z is the 31st at 13:30 in Kiritimati (UTC+14) and the 30th at
+        // 12:30 in Midway (UTC-11). With "now" fixed at 2026-08-30T23:40Z — the 31st
+        // locally in the first zone, the 30th in the second — the same push is today in
+        // one place and yesterday in the other.
+        let push = GitHubEvent(kind: .push, createdAt: try date("2026-08-30T09:30:00Z"))
+        let now = try date("2026-08-30T23:40:00Z")
+
+        let ahead = GitHubActivitySummary(
+            events: [push],
+            now: now,
+            calendar: calendar("Pacific/Kiritimati"),
+            fetchedAt: now
+        )
+        // Locally the push was the 30th at 23:30 and it is now the 31st at 13:40.
+        #expect(ahead.lastPushAt == nil)
+
+        let behind = GitHubActivitySummary(
+            events: [push],
+            now: now,
+            calendar: calendar("Pacific/Midway"),
+            fetchedAt: now
+        )
+        // Locally the push was the 29th at 22:30 and it is now the 30th at 12:40.
+        #expect(behind.lastPushAt == nil)
+
+        let sameDay = GitHubActivitySummary(
+            events: [push],
+            now: try date("2026-08-30T12:00:00Z"),
+            calendar: calendar("Europe/Berlin"),
+            fetchedAt: now
+        )
+        #expect(sameDay.lastPushAt == push.createdAt)
     }
 
     @Test("A window with no push has no push time, and pull requests alone do not invent one")

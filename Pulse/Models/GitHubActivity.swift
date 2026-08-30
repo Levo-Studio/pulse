@@ -54,11 +54,20 @@ public struct GitHubEvent: Equatable, Sendable {
 /// fetched.
 public struct GitHubActivitySummary: Equatable, Sendable {
 
-    /// When the newest push in the window happened, or `nil` when the window holds
-    /// none.
+    /// When the newest push **of today** happened, in the device's own time zone, or
+    /// `nil` when there has been none today.
+    ///
+    /// Scoped to today for the same reason the pull request counts are. The window
+    /// behind it is 90 days of public activity, so the newest push in it can be from
+    /// last week — and it is rendered on a screen whose headline says `COMMITS TODAY`
+    /// and whose axis says `TODAY`, with no date beside it to say otherwise. An
+    /// account that worked privately for a few days would get last week's time drawn
+    /// exactly where today's belongs.
     ///
     /// A missing value means the screen omits the line entirely rather than showing a
-    /// placeholder time that would read as a real one.
+    /// time it cannot stand behind. That is the same rule the headline count follows
+    /// when GitHub publishes no exact figure for the day: silence over a confident
+    /// wrong answer.
     public let lastPushAt: Date?
 
     /// Public pull requests opened today, in the device's own time zone.
@@ -91,6 +100,7 @@ public struct GitHubActivitySummary: Equatable, Sendable {
         for event in events {
             switch event.kind {
             case .push:
+                guard calendar.isDate(event.createdAt, inSameDayAs: now) else { continue }
                 if let current = newestPush, current >= event.createdAt { continue }
                 newestPush = event.createdAt
             case .pullRequestOpened:
