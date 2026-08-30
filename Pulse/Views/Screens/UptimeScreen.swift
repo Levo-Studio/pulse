@@ -55,8 +55,8 @@ public struct UptimeScreen: View {
                     tracking: 2,
                     color: PixelTheme.faint
                 )
-                if model.isUnreachable {
-                    PixelLabel("CONNECTION FAILED", size: 10, tracking: 2, color: PixelTheme.faint)
+                if let faultText = model.faultText {
+                    PixelLabel(faultText, size: 10, tracking: 2, color: PixelTheme.faint)
                 }
             }
 
@@ -79,7 +79,7 @@ public struct UptimeScreen: View {
     private var keyPrompt: some View {
         PixelScreenBackdrop(placement: .centred, alignment: .leading, spacing: 0) {
             UptimeKeyPrompt(
-                wasRejected: model.keyWasRejected,
+                notice: model.promptNotice,
                 submit: { model.store(key: $0) }
             )
         }
@@ -126,8 +126,21 @@ private struct UptimeRow: View {
 /// anywhere else.
 private struct UptimeKeyPrompt: View {
 
-    let wasRejected: Bool
-    let submit: (String) -> Void
+    /// Why the prompt is being shown, which decides the line above the field.
+    enum Notice: Equatable {
+
+        /// No key has been supplied yet.
+        case firstUse
+
+        /// The API answered `401` with the stored key.
+        case keyRejected
+
+        /// The Keychain refused the write.
+        case storageFailed
+    }
+
+    let notice: Notice
+    let submit: (String) -> Bool
 
     @State private var key = ""
 
@@ -137,12 +150,7 @@ private struct UptimeKeyPrompt: View {
         VStack(alignment: .leading, spacing: metrics(14)) {
             PixelLabel("UPTIME", size: 13, tracking: 2, color: PixelTheme.bright)
 
-            PixelLabel(
-                wasRejected ? "KEY REJECTED — ENTER IT AGAIN" : "ENTER YOUR API KEY",
-                size: 10,
-                tracking: 2,
-                color: wasRejected ? PixelTheme.statusDown : PixelTheme.faint
-            )
+            PixelLabel(noticeText, size: 10, tracking: 2, color: noticeColour)
 
             VStack(alignment: .leading, spacing: metrics(8)) {
                 SecureField("", text: $key)
@@ -182,11 +190,25 @@ private struct UptimeKeyPrompt: View {
         key.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var noticeText: String {
+        switch notice {
+        case .firstUse: "ENTER YOUR API KEY"
+        case .keyRejected: "KEY REJECTED — ENTER IT AGAIN"
+        case .storageFailed: "KEYCHAIN WRITE FAILED — TRY AGAIN"
+        }
+    }
+
+    private var noticeColour: Color {
+        notice == .firstUse ? PixelTheme.faint : PixelTheme.statusDown
+    }
+
+    /// Hands the typed key over, clearing the field only once it is safely stored.
     private func save() {
         let value = trimmedKey
         guard !value.isEmpty else { return }
-        key = ""
-        submit(value)
+        if submit(value) {
+            key = ""
+        }
     }
 }
 
@@ -209,11 +231,11 @@ private final class UptimeModel {
     /// Whether the user still has to supply a key.
     private(set) var needsKey: Bool
 
-    /// Whether the last stored key was rejected by the API, as opposed to never set.
-    private(set) var keyWasRejected = false
+    /// Why the key prompt is on screen.
+    private(set) var promptNotice: UptimeKeyPrompt.Notice = .firstUse
 
-    /// Whether the last attempt failed to reach the API.
-    private(set) var isUnreachable = false
+    /// A description of the last failed refresh, or `nil` when the last one succeeded.
+    private(set) var faultText: String?
 
     /// When the last check completed, successfully or not. Drives the countdown.
     private var lastAttempt: Date?
@@ -246,8 +268,11 @@ private final class UptimeModel {
     }
 
     /// Whole seconds left until the next poll, derived from the last attempt.
+    ///
+    /// Before the first attempt this reads as a full interval rather than zero, so the
+    /// line is a live countdown from the moment the screen appears, as in the reference.
     var secondsUntilRefresh: Int {
-        guard let lastAttempt else { return 0 }
+        guard let lastAttempt else { return Int(Self.pollInterval) }
         let remaining = Self.pollInterval - now.timeIntervalSince(lastAttempt)
         return max(0, Int(remaining.rounded(.up)))
     }
@@ -255,12 +280,21 @@ private final class UptimeModel {
     /// Stores a user-supplied key and resumes polling.
     ///
     /// The value is written to the Keychain and dropped; it is never logged and never
-    /// held in this type.
-    func store(key: String) {
-        guard keychain.set(key, for: .uptimeAPIKey) else { return }
-        keyWasRejected = false
+    /// held in this type. A write that fails is surfaced rather than swallowed: the
+    /// prompt keeps what the user typed and says what went wrong, instead of leaving a
+    /// cleared field behind a button that appears to do nothing.
+    ///
+    /// - Returns: `true` when the key reached the Keychain.
+    @discardableResult
+    func store(key: String) -> Bool {
+        guard keychain.set(key, for: .uptimeAPIKey) else {
+            promptNotice = .storageFailed
+            return false
+        }
+        promptNotice = .firstUse
         needsKey = false
         lastAttempt = nil
+        return true
     }
 
     /// Runs the poll loop until the enclosing task is cancelled.
@@ -295,25 +329,46 @@ private final class UptimeModel {
             services = fetched
             lastAttempt = Date()
             lastSuccess = lastAttempt
-            isUnreachable = false
-            keyWasRejected = false
+            faultText = nil
         } catch is CancellationError {
             // Paged away mid-request: leave the schedule untouched so returning to
             // the screen refreshes immediately rather than waiting out an interval.
             return
         } catch UptimeAPIClient.Failure.unauthorized {
-            keychain.remove(.uptimeAPIKey)
+            // The stored key is deliberately left in place. It may be the user's only
+            // copy of a long opaque token, and a single transient 401 — a proxy
+            // answering during a deploy, an auth-path blip — must not destroy it.
+            // Re-prompting does not require deleting; the item is overwritten only
+            // when the user saves a new value.
             services = []
             lastAttempt = nil
             lastSuccess = nil
-            isUnreachable = false
-            keyWasRejected = true
+            faultText = nil
+            promptNotice = .keyRejected
             needsKey = true
         } catch {
-            // Transport and schema failures both leave the previous list on screen;
-            // the next attempt is scheduled normally so a flapping API is not hammered.
+            // Every other failure leaves the previous list on screen and schedules the
+            // next attempt normally, so a flapping API is not hammered.
             lastAttempt = Date()
-            isUnreachable = true
+            faultText = Self.faultText(for: error)
+        }
+    }
+
+    /// A short, honest description of a failed refresh for the meta block.
+    ///
+    /// A transport failure and a server or schema fault read differently: calling a
+    /// `500` a connection failure misdescribes what happened. No response body and no
+    /// underlying error text is used, since either could carry credentials.
+    private static func faultText(for error: Error) -> String {
+        switch error {
+        case UptimeAPIClient.Failure.unreachable:
+            "CONNECTION FAILED"
+        case UptimeAPIClient.Failure.malformedResponse:
+            "UNREADABLE RESPONSE"
+        case UptimeAPIClient.Failure.server(let status):
+            "SERVER ERROR: \(status)"
+        default:
+            "REFRESH FAILED"
         }
     }
 }

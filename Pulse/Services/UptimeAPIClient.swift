@@ -14,11 +14,14 @@ nonisolated public struct UptimeAPIClient: Sendable {
     /// Why a request did not produce a list of services.
     public enum Failure: Error, Equatable, Sendable {
 
-        /// The API rejected the key. `401` is the documented answer to a request
-        /// without a usable key; `403` is treated the same way, since both mean the
-        /// key on file will not work. The key must be re-entered; this is
-        /// deliberately distinct from a transport failure so the screen can re-prompt
-        /// instead of showing a network error.
+        /// The API rejected the key with `401`, the documented answer to a request
+        /// without a usable one. The key must be re-entered; this is deliberately
+        /// distinct from a transport failure so the screen can re-prompt instead of
+        /// showing a network error.
+        ///
+        /// `403` is **not** folded in here. It means authenticated but not permitted,
+        /// so re-typing the same key cannot resolve it and prompting for one would
+        /// loop; it is reported as `server(status: 403)` instead.
         case unauthorized
 
         /// The request never completed — offline, DNS, TLS, timeout.
@@ -93,7 +96,7 @@ nonisolated public struct UptimeAPIClient: Sendable {
             } catch {
                 throw Failure.malformedResponse
             }
-        case 401, 403:
+        case 401:
             throw Failure.unauthorized
         default:
             throw Failure.server(status: http.statusCode)
