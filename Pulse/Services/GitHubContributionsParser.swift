@@ -23,9 +23,9 @@ import Foundation
 /// second source for it: it is a quartile bucket relative to the account's own busiest
 /// day, so the same level stands for wildly different counts on different accounts.
 /// Losing the tooltips therefore means losing the data, not falling back to a coarser
-/// version of it, and this parser treats it that way — no tooltips at all, or tooltips
-/// for fewer than half the day cells, yields no days rather than a plausible-looking
-/// fabrication presented as fresh truth.
+/// version of it, and this parser treats it that way — no tooltips at all, or more than
+/// `levelFallbackBudget` cells missing one, yields the exactly-known days alone rather
+/// than a plausible-looking fabrication presented as fresh truth.
 public enum GitHubContributionsParser {
 
     /// Parses every calendar day out of `html`.
@@ -46,7 +46,14 @@ public enum GitHubContributionsParser {
         // A level-derived count is only ever a stand-in for one isolated cell whose
         // tooltip is missing. If coverage is worse than that, the markup has changed
         // shape and nothing is derived at all.
-        let allowsLevelFallback = tooltips.count * 2 >= cells.count
+        //
+        // The threshold is the number of missing tooltips the calendar is allowed to
+        // fabricate, and it is deliberately tiny. A proportional limit would let the
+        // sentence above stop being true: at half the calendar it would fabricate a
+        // hundred and eighty days from account-relative levels, shade the heatmap
+        // from them, and say nothing about it. Three is a handful of cells GitHub
+        // failed to annotate, not a markup change wearing a disguise.
+        let allowsLevelFallback = cells.count - tooltips.count <= Self.levelFallbackBudget
 
         var days: [ContributionDay] = []
         days.reserveCapacity(cells.count)
@@ -69,6 +76,16 @@ public enum GitHubContributionsParser {
 
         return days
     }
+
+    /// How many day cells may take a level-derived count when their tooltip is
+    /// missing.
+    ///
+    /// GitHub's `data-level` is a quartile relative to the account's own busiest day,
+    /// so a count recovered from it is a guess whose error is unbounded. It is
+    /// tolerated only for the odd cell the page failed to annotate; anything beyond
+    /// that is a markup change, and the parser returns the days it does have exact
+    /// figures for rather than padding the calendar out with fabrications.
+    static let levelFallbackBudget = 3
 
     // MARK: - Day cells
 

@@ -45,7 +45,10 @@ public struct StopwatchScreen: View {
                 Self.elapsedText(stopwatch.elapsed(at: now)),
                 size: 48,
                 tracking: 2,
-                color: PixelTheme.primary
+                color: PixelTheme.primary,
+                // `line-height: 1` in the reference, as on the clock: the 22 units
+                // below the readout start at the bottom of a one-em box.
+                lineBox: .tight
             )
 
             PixelLabel(

@@ -108,7 +108,10 @@ public struct GitHubScreen: View {
                 model.commitsToday.map(String.init) ?? "--",
                 size: 76,
                 tracking: 1,
-                color: PixelTheme.primary
+                color: PixelTheme.primary,
+                // `line-height: 1` in the reference: both the 96 units above the
+                // count and the 14 below it are measured from a one-em box.
+                lineBox: .tight
             )
             PixelLabel("COMMITS TODAY", size: 11, tracking: 4, color: PixelTheme.muted)
                 .padding(.top, metrics(14))
@@ -125,15 +128,31 @@ public struct GitHubScreen: View {
         .frame(maxWidth: .infinity)
     }
 
+    @ViewBuilder
     private func statusRow(_ status: String) -> some View {
-        Button {
-            isEditingUsername = true
-        } label: {
-            PixelLabel(status, size: 10, tracking: 2, color: PixelTheme.muted)
-                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                .contentShape(Rectangle())
+        if model.lastFailure == nil {
+            // The only status the screen shows without a failure behind it is a
+            // missing count for today, which no rename can fix. It reads as plain
+            // text, because a tap that silently opened the username prompt would be
+            // offering a repair for a problem the user does not have — and nothing on
+            // the row suggests a tap would start one.
+            statusLabel(status)
+        } else {
+            // Every failure line ends in TAP TO CHANGE, so the row is the way back to
+            // the prompt.
+            Button {
+                isEditingUsername = true
+            } label: {
+                statusLabel(status)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
+    }
+
+    private func statusLabel(_ status: String) -> some View {
+        PixelLabel(status, size: 10, tracking: 2, color: PixelTheme.muted)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
 
     // MARK: - Polling

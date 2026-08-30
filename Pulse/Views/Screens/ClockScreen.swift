@@ -28,7 +28,11 @@ public struct ClockScreen: View {
                 ticker.reading.time,
                 size: 70,
                 tracking: 2,
-                color: PixelTheme.primary
+                color: PixelTheme.primary,
+                // The reference sets `line-height: 1` on the time, so the 20 units
+                // below it are measured from a one-em box, not from the taller box
+                // the face asks for.
+                lineBox: .tight
             )
 
             PixelLabel(
