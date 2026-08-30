@@ -176,15 +176,72 @@ struct UptimeResponseDecoderTests {
         #expect(services.first?.lastCheckedAt == Date(timeIntervalSince1970: 1_781_352_000))
     }
 
-    @Test("A timestamp that is not a date fails the response rather than being ignored")
-    func malformedTimestampIsRejected() {
+    @Test(
+        "An unusable timestamp costs that project its check time, not the whole list",
+        arguments: [
+            #""yesterday""#,      // Not a date at all.
+            #""13/06/2026""#,     // A date, but not ISO 8601.
+            "1781352000",          // The right instant in the wrong type.
+            "null",
+            "{}"
+        ]
+    )
+    func unusableTimestampDegrades(value: String) throws {
         let json = """
-        {"data":{"projects":[{"id":"1","name":"X","currentStatus":"up",
-         "lastCheckedAt":"yesterday"}]}}
+        {"data":{"projects":[
+          {"name":"BROKEN STAMP","currentStatus":"down","lastCheckedAt":\(value)},
+          {"name":"GOOD STAMP","currentStatus":"up","lastCheckedAt":"2026-06-13T12:00:00.000Z"}]}}
         """
 
-        #expect(throws: (any Error).self) {
-            try UptimeResponseDecoder.decode(Data(json.utf8))
-        }
+        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
+
+        // Both rows still render, with their real states: a check time is not a row.
+        #expect(services.map(\.name) == ["BROKEN STAMP", "GOOD STAMP"])
+        #expect(services.map(\.status) == [.down, .operational])
+        #expect(services.first?.lastCheckedAt == nil)
+        #expect(services.last?.lastCheckedAt == Date(timeIntervalSince1970: 1_781_352_000))
+    }
+
+    @Test("An unusable status field costs that project its state, not the whole list")
+    func unusableStatusDegrades() throws {
+        // `currentStatus` sent as a number rather than a string: the row survives as
+        // unknown, on the same rule the timestamp follows.
+        let json = #"{"data":{"projects":[{"name":"NUMERIC","currentStatus":1}]}}"#
+
+        #expect(try UptimeResponseDecoder.decode(Data(json.utf8))
+            == [UptimeService(name: "NUMERIC", status: .unknown)])
+    }
+
+    @Test("Fields the screen never draws cannot fail the parse, whatever their type")
+    func undrawnFieldsAreNotRequired() throws {
+        // No `id` on the project, no `id` or `keyPrefix` on the key, and an `id` sent
+        // as a number rather than a string. None of it is decoded, so none of it can
+        // reject a response the screen could otherwise draw.
+        let json = """
+        {"data":{"key":{"name":"Statuspage"},
+         "projects":[{"id":7,"name":"NUMERIC ID","currentStatus":"up"},
+                     {"name":"NO ID","currentStatus":"down"}]}}
+        """
+
+        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
+
+        #expect(services.map(\.name) == ["NUMERIC ID", "NO ID"])
+        #expect(services.map(\.status) == [.operational, .down])
+    }
+
+    @Test("A timestamp ahead of the device clock is kept as the API sent it")
+    func futureTimestampIsNotClamped() throws {
+        // Deliberate: the line reports the API's own clock, and silently rewriting a
+        // skewed timestamp to "now" would hide the skew behind a plausible time.
+        let json = """
+        {"data":{"projects":[{"name":"AHEAD","currentStatus":"up",
+         "lastCheckedAt":"2099-01-01T00:00:00.000Z"}]}}
+        """
+
+        let stamp = try #require(
+            UptimeResponseDecoder.decode(Data(json.utf8)).first?.lastCheckedAt
+        )
+
+        #expect(stamp > Date())
     }
 }

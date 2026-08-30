@@ -208,15 +208,20 @@ struct UptimeModelTests {
         await model.refresh()
         #expect(model.lastCheckText == Self.localClockText(for: 1_781_352_000))
 
-        // A response the API stamps with no check time leaves the line as dashes
-        // rather than quietly substituting the device's own fetch time, which is a
-        // different quantity and would read as the same one.
+        // A response with no usable check time anywhere — absent on one project and
+        // unparsable on the other — still draws both rows and leaves the line as
+        // dashes, rather than quietly substituting the device's own fetch time, which
+        // is a different quantity and would read as the same one.
         let unstamped = UptimeModel(
             keychain: keychain,
-            client: makeClient(status: 200, body: #"{"data":{"projects":[{"id":"1","name":"X"}]}}"#)
+            client: makeClient(status: 200, body: """
+            {"data":{"projects":[{"name":"NO STAMP","currentStatus":"up"},
+                                 {"name":"BAD STAMP","currentStatus":"down",
+                                  "lastCheckedAt":"yesterday"}]}}
+            """)
         )
         await unstamped.refresh()
-        #expect(unstamped.services.count == 1)
+        #expect(unstamped.services.count == 2)
         #expect(unstamped.lastCheckText == "--:--:--")
     }
 
