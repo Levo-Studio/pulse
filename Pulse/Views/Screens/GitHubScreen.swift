@@ -7,8 +7,8 @@ import SwiftUI
 /// reference's `LAST COMMIT AT:` label is dropped and its time set bare above the
 /// count, the invented pull request line is gone, and the reference's fixed `+96` and
 /// `+110` vertical offsets — authored for its own 360 × 780 frame — are replaced by
-/// gaps that flex, so the screen fills a taller phone instead of clustering around
-/// two voids.
+/// gaps that flex, so a taller frame shares its extra height between the blocks
+/// instead of dropping all of it into the spacer above the last line.
 ///
 /// Two public sources feed it, and they are not interchangeable. The heatmap and the
 /// headline count come from the scraped contributions page, which has per-day totals
@@ -91,6 +91,14 @@ public struct GitHubScreen: View {
                 flexibleGap(minimum: 48)
 
                 ContributionHeatmapGrid(contributions: model.contributions)
+                    // The grid is the one block whose height is a consequence of its
+                    // width: its cells are square by aspect ratio, so a stack that
+                    // hands it less height than its width asks for returns a narrower
+                    // grid with dead margins either side, not a shorter one. Laying it
+                    // out first means it is offered the space the flexing gaps have not
+                    // yet claimed, answers with the height its own width implies, and
+                    // hands the rest straight back to them.
+                    .layoutPriority(1)
 
                 axis
                     .padding(.top, metrics(16))
@@ -110,11 +118,12 @@ public struct GitHubScreen: View {
     /// Vertical space that grows with the screen, stated in design-reference units.
     ///
     /// The reference pins the count at `+96` below the header and the heatmap at `+110`
-    /// below the count. Those are fixed offsets in a 360 × 780 frame; transcribed
-    /// literally they leave a taller phone with two dead bands and everything bunched
-    /// against them. Flexing the gaps instead keeps every block's internal spacing
-    /// exactly as drawn while the space between blocks absorbs whatever height the
-    /// device actually has.
+    /// below the count. Those are fixed offsets in a 360 × 780 frame, and a taller
+    /// frame has to put the difference somewhere: transcribed literally it all collects
+    /// in the trailing spacer, which strands `LAST CHECK` 117 points above
+    /// `CHANGE USERNAME` at 393 × 852 rather than sharing the height out. Flexing the
+    /// gaps instead keeps every block's internal spacing exactly as drawn while the
+    /// space between blocks absorbs whatever height the device actually has.
     ///
     /// - Parameters:
     ///   - minimum: Space the gap never goes below — the smallest supported screen is
@@ -195,7 +204,12 @@ public struct GitHubScreen: View {
     /// told apart by everything except their wording:
     ///
     /// - **Size.** 16 against the header's 10 — and 16 is the reference's own size for
-    ///   the clock's date and temperature lines, not an invented one.
+    ///   the clock's date and temperature lines, not an invented one. The tracking is
+    ///   4, not the 5 those clock lines carry: 16 at 5 in `#525252` would be that
+    ///   line's style character for character, and quoting the one screen in the app
+    ///   that really is a clock is the last thing this time should do. 4 is the
+    ///   tracking of `COMMITS TODAY` directly below it, which is the rhythm it belongs
+    ///   to.
     /// - **Colour.** `#525252`, the reference's colour for `LAST COMMIT AT` and for
     ///   `COMMITS TODAY` directly below, against the header's fainter `#3D3D3D`. The
     ///   time and the label below the count are therefore the same grey, bracketing the
@@ -211,7 +225,7 @@ public struct GitHubScreen: View {
     private var commitBlock: some View {
         VStack(spacing: 0) {
             if let time = model.lastCommitTime {
-                PixelLabel(time, size: 16, tracking: 5, color: PixelTheme.muted)
+                PixelLabel(time, size: 16, tracking: 4, color: PixelTheme.muted)
                     .padding(.bottom, metrics(14))
                     .accessibilityLabel("Last commit at \(time)")
             }

@@ -88,7 +88,7 @@ Type scale, at the reference frame width of 360 pt:
 | Stopwatch time-of-day | 14 | 4 |
 | GitHub commit count | 76 | 1 |
 | GitHub "COMMITS TODAY" | 11 | 4 |
-| GitHub last-commit time | 16 | 5 |
+| GitHub last-commit time | 16 | 4 |
 | GitHub header row | 10 | 2 |
 | Heatmap axis labels | 9 | 2 |
 | Uptime service name | 13 | 2 |
@@ -133,20 +133,36 @@ Carry these forward; do not silently resolve them.
     The screen therefore carries two unlabelled times: this one and the header's clock.
     They are separated on every other axis — the header is 10, `#3D3D3D`, right-aligned
     in the top row, `HH:mm:ss` and ticking; this one is 16, `#525252`, centred mid
-    screen, `HH:mm` and static. Keep that separation if either is ever restyled.
+    screen, `HH:mm` and static. Keep that separation if either is ever restyled. Its
+    tracking is **4, not 5**: 16 at 5 in `#525252` is the Clock screen's own date and
+    temperature style character for character, and this time must not quote the screen
+    that really is a clock. 4 is the tracking of `COMMITS TODAY` below it.
   - The **pull request line is removed**, and with it the summary's opened and merged
     counters and the events client's classification of pull request actions. Do not
     reintroduce a count from the events feed. The feed is still fetched: it supplies the
     time above the count and the freshness line.
   - The reference's **fixed vertical offsets are not transcribed**. `+96` to the count
-    and `+110` to the heatmap were authored for the 360 × 780 frame and leave two large
-    voids on a taller phone. The screen distributes its space instead — header at the
-    top, count block optically centred, heatmap and axis below it, footer at the foot —
-    with gaps that flex and a floor that holds on the shortest supported screen. Type
-    sizes, colours and heatmap density are unchanged, and the blocks keep their own
-    internal spacing exactly as drawn. `GitHubScreenLayoutTests` renders the screen at
-    375 × 667 and 393 × 852 and pins both that it fits and that no band of the frame is
-    left empty.
+    and `+110` to the heatmap were authored for the 360 × 780 frame, and a frame taller
+    than that has to put the leftover height somewhere. Transcribed literally it all
+    lands in one place — the trailing spacer above `CHANGE USERNAME` — which splits the
+    footer rather than sharing the space: measured, 117 points of gap between
+    `LAST CHECK` and `CHANGE USERNAME` at 393 × 852 and 58 at 375 × 667. The screen
+    distributes its space instead — header at the top, count block optically centred,
+    heatmap and axis below it, footer together at the foot — with gaps that flex and
+    floors that hold on the shortest supported screen. Type sizes, colours and heatmap
+    density are unchanged, and the blocks keep their own internal spacing exactly as
+    drawn.
+  - The heatmap **is laid out before those gaps** (`layoutPriority(1)`). Its cells are
+    square by aspect ratio, so height it is not granted comes back as width it does not
+    draw: without the priority the grid rendered 252 points wide of an available 330 at
+    375 × 667, inset from an axis row that still spanned the full width. Do not remove
+    it.
+  - `GitHubScreenLayoutTests` renders the screen at 375 × 667 and 393 × 852 and pins
+    where its elements land: eight bands in order, the header on the reference's 70 unit
+    inset, the footer's two lines together at the foot, the count block centred between
+    the header and the grid, and the grid at the full content width. It locates each
+    band by the palette colour that draws it, **not** by how bright the render is — an
+    empty heatmap is `#141414` and a brightness threshold does not see it at all.
 - The GitHub frame shows `LAST COMMIT AT: 13:58`. The contributions page exposes only
   per-day totals, so the line is sourced from the public events API instead (see §3),
   from the newest public push **of today**. Two caveats stand: the feed timestamps the
