@@ -95,14 +95,17 @@ public struct PixelCredentialField: View {
         .padding(.horizontal, metrics(14))
         .frame(height: metrics(52))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Self.surface)
+        .background(PixelTheme.inputSurface)
         .overlay {
             Rectangle()
                 .stroke(
-                    // Focus is stated in the palette's own terms: the hairline goes from
-                    // the list separator to bright, which is how the reference marks
-                    // what is current.
-                    isFocused.wrappedValue ? PixelTheme.bright : PixelTheme.separator,
+                    // Focus is stated in the palette's own terms: the hairline goes
+                    // from a muted edge to bright, which is how the reference marks
+                    // what is current. At rest it is the muted grey rather than the row
+                    // separator, which on this near-black surface is invisible — the
+                    // field would read as a faint slab and its border would appear out
+                    // of nothing on focus.
+                    isFocused.wrappedValue ? PixelTheme.bright : PixelTheme.muted,
                     lineWidth: max(1, metrics(1))
                 )
         }
@@ -163,10 +166,6 @@ public struct PixelCredentialField: View {
         .buttonStyle(.plain)
         .accessibilityLabel(isRevealed ? "Hide the entered value" : "Show the entered value")
     }
-
-    /// The field's surface: a shade above pure black, so the field reads as a field on
-    /// a black screen without a rounded iOS control behind it.
-    private static let surface = Color(hex: 0x0C0C0C)
 }
 
 /// The shared appearance of an entry field's value.

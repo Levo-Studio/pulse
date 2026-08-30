@@ -104,6 +104,7 @@ public struct CredentialPromptScaffold<Field: View>: View {
 
                 noticeSlot
                     .padding(.top, metrics(18))
+                    .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
 
                 actions
                     .padding(.top, metrics(14))
