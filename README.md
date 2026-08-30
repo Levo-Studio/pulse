@@ -132,13 +132,13 @@ line reads `NO COUNT FOR TODAY`. See
 [Known fragility](#known-fragility-the-github-contribution-source) for why this
 matters more than it looks.
 
-The foot of the screen carries the reference's `LAST COMMIT AT` line, plus today's
-public pull request activity and a `LAST CHECK` line so you can see how current the
-screen is. These come from GitHub's public events API, unauthenticated and with no
-token stored. Two limits are worth knowing. The events feed sees **public activity
-only**, so it can legitimately disagree with a heatmap that includes private
-contributions. And `LAST COMMIT AT` is scoped to today: a push from an earlier day
-is omitted rather than shown as a bare time on a screen headlined `COMMITS TODAY`.
+Directly above the count sits the time of today's last commit, bare and unlabelled,
+and the foot of the screen carries a `LAST CHECK` line so you can see how current
+the screen is. Both come from GitHub's public events API, unauthenticated and with
+no token stored. Two limits are worth knowing. The events feed sees **public
+activity only**, so it can legitimately disagree with a heatmap that includes
+private contributions. And the commit time is scoped to today: a push from an
+earlier day is omitted rather than drawn above a headline reading `COMMITS TODAY`.
 The endpoint allows 60 requests an hour per IP address, shared with anything else
 behind it, so an exhausted quota keeps the last good data rather than failing.
 

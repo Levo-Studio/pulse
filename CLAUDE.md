@@ -69,7 +69,7 @@ Screen surface and type:
 | Screen background | `#000000` | All four screens |
 | Primary text | `#FFFFFF` | Clock time, stopwatch time, commit count |
 | Bright label | `#E6E6E6` | GitHub username, uptime service names |
-| Secondary label | `#525252` | Date, clock temperature and its condition indicator, "COMMITS TODAY", "LAST COMMIT AT" |
+| Secondary label | `#525252` | Date, clock temperature and its condition indicator, "COMMITS TODAY", the bare last-commit time above it |
 | Tertiary label | `#3D3D3D` | Time-of-day readout, "LAST CHECK", "NEXT REFRESH", axis labels |
 | Row separator | `#1C1C1C` | Uptime list row bottom border |
 
@@ -88,6 +88,7 @@ Type scale, at the reference frame width of 360 pt:
 | Stopwatch time-of-day | 14 | 4 |
 | GitHub commit count | 76 | 1 |
 | GitHub "COMMITS TODAY" | 11 | 4 |
+| GitHub last-commit time | 16 | 5 |
 | GitHub header row | 10 | 2 |
 | Heatmap axis labels | 9 | 2 |
 | Uptime service name | 13 | 2 |
@@ -123,13 +124,36 @@ bloom, or `.shadow(...)` to any display element.
 
 Carry these forward; do not silently resolve them.
 
+- The GitHub screen's layout departs from the frame in three ways, all **explicit
+  direction from the repository owner**, none of them oversights. Do not "correct" any
+  of them back to the reference.
+  - The reference's `LAST COMMIT AT:` **label is dropped**. The time is drawn bare,
+    centred directly above the commit count, at size 16 in `#525252` — the same grey as
+    `COMMITS TODAY` below the count, so the two bracket the white number as one block.
+    The screen therefore carries two unlabelled times: this one and the header's clock.
+    They are separated on every other axis — the header is 10, `#3D3D3D`, right-aligned
+    in the top row, `HH:mm:ss` and ticking; this one is 16, `#525252`, centred mid
+    screen, `HH:mm` and static. Keep that separation if either is ever restyled.
+  - The **pull request line is removed**, and with it the summary's opened and merged
+    counters and the events client's classification of pull request actions. Do not
+    reintroduce a count from the events feed. The feed is still fetched: it supplies the
+    time above the count and the freshness line.
+  - The reference's **fixed vertical offsets are not transcribed**. `+96` to the count
+    and `+110` to the heatmap were authored for the 360 × 780 frame and leave two large
+    voids on a taller phone. The screen distributes its space instead — header at the
+    top, count block optically centred, heatmap and axis below it, footer at the foot —
+    with gaps that flex and a floor that holds on the shortest supported screen. Type
+    sizes, colours and heatmap density are unchanged, and the blocks keep their own
+    internal spacing exactly as drawn. `GitHubScreenLayoutTests` renders the screen at
+    375 × 667 and 393 × 852 and pins both that it fits and that no band of the frame is
+    left empty.
 - The GitHub frame shows `LAST COMMIT AT: 13:58`. The contributions page exposes only
   per-day totals, so the line is sourced from the public events API instead (see §3),
   from the newest public push **of today**. Two caveats stand: the feed timestamps the
   push, not the authoring of the commit inside it, and it sees public activity only, so
-  a day's work in a private repository is invisible to it. The line is scoped to today
-  because it carries no date and sits under a `COMMITS TODAY` headline, where a time
-  from earlier in the 90-day window would read as today's. With no public push today it
+  a day's work in a private repository is invisible to it. The time is scoped to today
+  because it carries no date and sits directly above a `COMMITS TODAY` headline, where a
+  time from earlier in the 90-day window would read as today's. With no public push today it
   is omitted, never placeheld and never filled with an older one.
 - The GitHub header shows the current time as `HH:MM:SS`, where the reference frame
   shows `14:32` and only the uptime frame uses seconds. This is a **deliberate
@@ -203,14 +227,13 @@ other source in this app. Only the base URL is hardcoded; the username comes fro
 Keychain.
 
 This is the second GitHub source and it does not replace the first. It is a documented
-JSON API rather than scraped markup, and it is where the screen's `LAST COMMIT AT` line,
-today's pull request activity and the freshness line come from. The heatmap and the
+JSON API rather than scraped markup, and it is where the bare time above the screen's
+count and the freshness line come from. The heatmap and the
 commits-today headline stay on the contributions page: only that source has per-day
 totals.
 
 Everything the screen draws from this feed is **scoped to the user's own today**, in the
-device's time zone — the last push as much as the pull request counts. The window is 90
-days deep and nothing on the screen carries a date, so an unscoped figure from it would
+device's time zone. The window is 90 days deep and nothing on the screen carries a date, so an unscoped figure from it would
 be read as today's. Where there is nothing today, the line is omitted.
 
 Its limits are part of the contract and must be carried into anything built on it:
