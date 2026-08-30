@@ -10,7 +10,7 @@ import Testing
 /// two halves would look correct on screen for a moment and then drift as wall-clock
 /// time passed, so the assertions here always re-read the value at a later instant as
 /// well as at the instant of the reset.
-struct StopwatchResetTests {
+struct StopwatchStateTests {
 
     /// A fixed instant to run the arithmetic against, so nothing depends on `Date()`.
     private let origin = Date(timeIntervalSinceReferenceDate: 1_000_000)
