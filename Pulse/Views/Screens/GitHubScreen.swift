@@ -14,9 +14,11 @@ public struct GitHubScreen: View {
 
     @Environment(\.activeScreen) private var activeScreen
     @Environment(\.pixelMetrics) private var metrics
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var model = GitHubActivityModel()
     @State private var isEditingUsername = false
+    @State private var ticker = SecondTicker()
 
     /// Creates the screen.
     public init() {}
@@ -41,6 +43,9 @@ public struct GitHubScreen: View {
             }
         }
         .task { model.restoreUsername() }
+        .onAppear { synchroniseTicker() }
+        .onDisappear { ticker.stop() }
+        .onChange(of: isHeaderTimeVisible) { synchroniseTicker() }
         // Polling is keyed on both the active screen and the username, so it starts
         // when the screen is paged in or the name changes, and is cancelled the
         // moment the user pages away.
@@ -117,22 +122,29 @@ public struct GitHubScreen: View {
             Button {
                 isEditingUsername = true
             } label: {
-                PixelLabel(username, size: 10, tracking: 2, color: PixelTheme.bright)
-                    .contentShape(Rectangle())
+                PixelLabel(
+                    GitHubHeaderRow.displayName(for: username),
+                    size: 10,
+                    tracking: 2,
+                    color: PixelTheme.bright
+                )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("GitHub username \(username). Tap to change.")
 
             Spacer(minLength: metrics(8))
 
-            TimelineView(.everyMinute) { context in
-                PixelLabel(
-                    Self.clockFormatter.string(from: context.date),
-                    size: 10,
-                    tracking: 2,
-                    color: PixelTheme.faint
-                )
-            }
+            // The current time, and the only unlabelled readout on the screen. The
+            // three at the foot all name what they report, so nothing else here can be
+            // mistaken for now.
+            PixelLabel(
+                GitHubHeaderRow.timeReadout(for: ticker.now),
+                size: 10,
+                tracking: 2,
+                color: PixelTheme.faint
+            )
+            .accessibilityLabel("Current time")
         }
         .frame(maxWidth: .infinity)
     }
@@ -200,12 +212,96 @@ public struct GitHubScreen: View {
         "\(isActive)-\(isEditingUsername)-\(model.username ?? "")"
     }
 
-    /// Wall-clock formatter for the header. Fixed pattern and POSIX locale, because
-    /// the reference shows a 24-hour readout regardless of device settings.
-    private static let clockFormatter: DateFormatter = {
+    // MARK: - Header ticking
+
+    /// Whether the header readout is actually being looked at.
+    ///
+    /// A 1 Hz timer earns its keep only while its output is visible, so it is gated on
+    /// three things: the pager may keep this page alive off-screen, the app may be
+    /// backgrounded with the view still mounted, and the username prompt replaces the
+    /// header entirely while it is up.
+    private var isHeaderTimeVisible: Bool {
+        isActive
+            && scenePhase == .active
+            && model.username != nil
+            && !isEditingUsername
+    }
+
+    private func synchroniseTicker() {
+        if isHeaderTimeVisible {
+            // `start` also refreshes, so a screen returning to view never shows the
+            // second it was paged away on.
+            ticker.start()
+        } else {
+            ticker.stop()
+        }
+    }
+}
+
+/// The arithmetic and formatting of the GitHub screen's header row, in
+/// design-reference units.
+///
+/// The row is a `space-between` pair — username on the left, time on the right — of
+/// two labels that are both `fixedSize(horizontal: true)`, so neither compresses and a
+/// `Spacer` between them cannot rescue an overlong row. A GitHub username may be 39
+/// characters, which never fitted beside the reference's `HH:mm`; beside `HH:mm:ss` it
+/// fits three characters less. The name is therefore truncated to a budget that holds
+/// whatever glyphs it is made of, rather than being left to overrun the frame.
+///
+/// The figures are in reference units and scale with everything else through
+/// `PixelMetrics`, so the row holds at every device width.
+enum GitHubHeaderRow {
+
+    /// Width available inside the screen's 26 unit horizontal padding.
+    static let contentWidth: CGFloat = PixelMetrics.referenceWidth - (2 * 26)
+
+    /// Advance of one header character, worst case.
+    ///
+    /// Silkscreen has an em of 1000 units and advances of 0.375, 0.625, 0.75 and
+    /// 0.875 em across the characters these labels can contain, with `M N V W X Y` at
+    /// the widest. Budgeting against the widest means a name of any composition fits;
+    /// the budget only ever errs towards truncating early.
+    static let characterWidth: CGFloat = (10 * 0.875) + 2
+
+    /// The readout is `HH:mm:ss`: eight characters.
+    static let timeWidth: CGFloat = 8 * characterWidth
+
+    /// The gaps the row spends: the stack's own spacing and the spacer's minimum.
+    static let gapWidth: CGFloat = 8 + 8
+
+    /// Width left for the username once the time and the gaps are paid for.
+    static let nameWidthBudget: CGFloat = contentWidth - timeWidth - gapWidth
+
+    /// How many characters of a username fit.
+    static let characterBudget: Int = Int(nameWidthBudget / characterWidth)
+
+    /// Marker replacing the tail of a username too long for the row.
+    ///
+    /// Three full stops rather than an ellipsis, matching the uptime rows: Silkscreen
+    /// draws `…` as one wide glyph where three narrow stops read more clearly.
+    static let truncationMarker = "..."
+
+    /// The username as the header draws it, shortened when it cannot fit.
+    ///
+    /// The full name is still what is stored and what the prompt shows, so nothing is
+    /// lost — only the row is kept intact.
+    static func displayName(for username: String) -> String {
+        guard username.count > characterBudget else { return username }
+        let kept = characterBudget - truncationMarker.count
+        return username.prefix(max(kept, 1)) + truncationMarker
+    }
+
+    /// The header readout for `date`, `HH:mm:ss`.
+    static func timeReadout(for date: Date) -> String {
+        formatter.string(from: date)
+    }
+
+    /// Fixed pattern and POSIX locale, because the reference shows a 24-hour readout
+    /// regardless of device settings. The time zone is the device's own.
+    private static let formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
 }
