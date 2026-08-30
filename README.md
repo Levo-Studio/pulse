@@ -48,9 +48,21 @@ significant time changes — the clock being set, the time zone changing, midnig
 and refreshes outside the normal rhythm. It stops ticking entirely when you page
 away or the app leaves the foreground.
 
-The design reference shows a third line, `21°C`, below the date. **It is not
-implemented.** No weather source is specified anywhere in the brief and the app
-stores no weather credential, so the Clock screen ships as time plus date only.
+Below the date sits the third line the design reference shows: a condition symbol
+and the local temperature, `21°C`. It comes from Open-Meteo, which needs no key
+and no account, so nothing is stored and only the base URL is hardcoded. Location
+is asked for the first time the screen needs it, never at launch, at reduced
+accuracy, and the coordinate is coarsened before it is sent. If you decline, if
+there is no fix, or if the request fails, the line is simply absent and the screen
+renders exactly as it would without it — no error text, no placeholder.
+
+Double-tapping the time switches the readout to `HH:MM:SS` and back, and
+double-tapping the weather hides the condition symbol. Both choices are remembered.
+The seconds readout is drawn at 48 rather than the reference's 70, because an
+eight-character time does not fit the content width at 70 — 48 is the size the
+reference itself uses for the stopwatch's own eight-character readout. With seconds
+showing, the clock ticks on the second boundary instead of the minute, and returns
+to minute ticks when you switch back.
 
 <p align="center">
   <img src="docs/clock.svg" alt="Clock screen: the time advancing above the date" width="200">
@@ -120,10 +132,15 @@ line reads `NO COUNT FOR TODAY`. See
 [Known fragility](#known-fragility-the-github-contribution-source) for why this
 matters more than it looks.
 
-The design reference shows a `LAST COMMIT AT: 13:58` line. **It is not
-implemented.** The public contributions page exposes per-day totals only, never
-commit timestamps, and Pulse stores no GitHub token that would let it ask for
-more. The slot that line occupies is used for the status line described above.
+The foot of the screen carries the reference's `LAST COMMIT AT` line, plus today's
+public pull request activity and a `LAST CHECK` line so you can see how current the
+screen is. These come from GitHub's public events API, unauthenticated and with no
+token stored. Two limits are worth knowing. The events feed sees **public activity
+only**, so it can legitimately disagree with a heatmap that includes private
+contributions. And `LAST COMMIT AT` is scoped to today: a push from an earlier day
+is omitted rather than shown as a bare time on a screen headlined `COMMITS TODAY`.
+The endpoint allows 60 requests an hour per IP address, shared with anything else
+behind it, so an exhausted quota keeps the last good data rather than failing.
 
 <p align="center">
   <img src="docs/github.svg" alt="GitHub screen: the contribution heatmap filling in and today's commit count landing" width="200">
@@ -217,10 +234,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
-141 tests in 21 suites, written with Swift Testing. They cover the GitHub
+147 tests in 22 suites, written with Swift Testing. They cover the GitHub
 contributions parser against the markup shapes it might be handed, the pixel
-label's line box, the uptime response decoder, the row-truncation arithmetic, and
-the uptime model's failure paths — a rejected key re-prompting without deleting
+label's line box measured against the bundled font, the clock's layout in every
+weather-absent state, the WMO condition mapping, the stopwatch tap sequence, the
+uptime response decoder, the row-truncation arithmetic, and the uptime model's
+failure paths — a rejected key re-prompting without deleting
 the stored one, a `403` not being mistaken for a rejected key, and a server error
 being reported as itself rather than as a connection failure. Nothing in the
 suite touches the network or the user's own Keychain items; the store and the API
