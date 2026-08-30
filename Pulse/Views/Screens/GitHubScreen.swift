@@ -99,7 +99,9 @@ public struct GitHubScreen: View {
     private var commitCount: some View {
         VStack(spacing: 0) {
             PixelLabel(
-                String(model.commitsToday),
+                // A placeholder rather than a zero when today has no exact count: the
+                // screen must not state a figure it cannot stand behind.
+                model.commitsToday.map(String.init) ?? "--",
                 size: 76,
                 tracking: 1,
                 color: PixelTheme.primary
@@ -179,9 +181,15 @@ final class GitHubActivityModel {
         self.username = store.string(for: .gitHubUsername)
     }
 
-    /// Contributions recorded today, `0` when there is no data for today.
-    var commitsToday: Int {
-        contributions.count(on: ContributionCalendar.dayKey(for: Date()))
+    /// The headline: GitHub's exact count for today, or `nil` when there is no exact
+    /// figure for it.
+    ///
+    /// Deliberately never falls back to a level-derived approximation. GitHub's levels
+    /// are relative to the account's own busiest day, so an approximation here could be
+    /// off by an order of magnitude while looking entirely ordinary. The screen shows a
+    /// placeholder instead, and the status line says why.
+    var commitsToday: Int? {
+        contributions.exactCount(on: ContributionCalendar.dayKey(for: Date()))
     }
 
     /// A short line describing a problem, or `nil` when the screen is healthy.
@@ -191,6 +199,11 @@ final class GitHubActivityModel {
     var statusLine: String? {
         switch lastFailure {
         case .none:
+            // A calendar that parsed but carries no exact figure for today: the
+            // headline shows a placeholder, so say why rather than leave it bare.
+            guard contributions.isEmpty || commitsToday != nil else {
+                return "NO COUNT FOR TODAY"
+            }
             return nil
         case .invalidUsername, .unknownUser:
             return "NO SUCH USER - TAP TO CHANGE"

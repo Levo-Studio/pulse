@@ -9,13 +9,21 @@ public struct ContributionDay: Equatable, Sendable, Identifiable {
     /// Number of contributions recorded on that day.
     public let count: Int
 
+    /// Whether `count` is the exact figure GitHub published for the day, rather than
+    /// an approximation recovered from its account-relative level bucket.
+    ///
+    /// Only an exact count may be shown as a number to the user; an approximate one is
+    /// good enough to shade a heatmap cell and nothing more.
+    public let isCountExact: Bool
+
     /// Stable identity for `ForEach`; GitHub emits one entry per day.
     public var id: String { date }
 
     /// Creates a day.
-    public init(date: String, count: Int) {
+    public init(date: String, count: Int, isCountExact: Bool = true) {
         self.date = date
         self.count = count
+        self.isCountExact = isCountExact
     }
 
     /// Heatmap intensity step, `0...4`.
@@ -39,11 +47,17 @@ public enum ContributionIntensity {
         }
     }
 
-    /// The smallest contribution count that produces `step`.
+    /// A rough contribution count for one of GitHub's own `data-level` buckets.
     ///
-    /// Used when GitHub gives a bucketed level for a day but no exact count.
-    public static func representativeCount(forStep step: Int) -> Int {
-        switch step {
+    /// GitHub's level and this type's step are **not the same scale**. The step above is
+    /// absolute — it comes from the design reference and means the same thing on every
+    /// account. GitHub's level is a quartile relative to that account's busiest day, so
+    /// on a busy account level 1 can be twenty contributions and on a quiet one it can
+    /// be a single contribution. Converting between them is therefore guesswork, and the
+    /// result may only shade a heatmap cell when a single day's exact count is missing.
+    /// It must never be shown to the user as a number.
+    public static func approximateCount(forLevel level: Int) -> Int {
+        switch level {
         case ..<1: return 0
         case 1: return 1
         case 2: return 3
@@ -59,8 +73,12 @@ public enum ContributionIntensity {
 /// renders from, and it is safe to render before any fetch has succeeded.
 public struct ContributionCalendar: Equatable, Sendable {
 
-    /// Contribution counts keyed by `yyyy-MM-dd`.
+    /// Contribution counts keyed by `yyyy-MM-dd`. Good enough to shade a heatmap cell;
+    /// a value here may have been approximated from GitHub's account-relative level.
     public let countsByDate: [String: Int]
+
+    /// The days whose count is GitHub's exact published figure.
+    public let exactDates: Set<String>
 
     /// When these counts were fetched, used to distinguish fresh from stale data.
     public let fetchedAt: Date
@@ -68,11 +86,14 @@ public struct ContributionCalendar: Equatable, Sendable {
     /// Creates a calendar from parsed days.
     public init(days: [ContributionDay], fetchedAt: Date = Date()) {
         var counts: [String: Int] = [:]
+        var exact: Set<String> = []
         counts.reserveCapacity(days.count)
         for day in days {
             counts[day.date] = day.count
+            if day.isCountExact { exact.insert(day.date) }
         }
         self.countsByDate = counts
+        self.exactDates = exact
         self.fetchedAt = fetchedAt
     }
 
@@ -83,8 +104,20 @@ public struct ContributionCalendar: Equatable, Sendable {
     public var isEmpty: Bool { countsByDate.isEmpty }
 
     /// Contributions recorded on `dayKey`, or `0` when the day is absent.
+    ///
+    /// May be approximate. Use it to shade a cell, not to display a number.
     public func count(on dayKey: String) -> Int {
         countsByDate[dayKey] ?? 0
+    }
+
+    /// GitHub's exact count for `dayKey`, or `nil` when the day is absent or its count
+    /// was only approximated from a level bucket.
+    ///
+    /// The commit count is the headline of the GitHub screen, so it is drawn from this
+    /// and shows nothing at all rather than a number that might be wrong.
+    public func exactCount(on dayKey: String) -> Int? {
+        guard exactDates.contains(dayKey) else { return nil }
+        return countsByDate[dayKey]
     }
 
     /// Formats `date` into the `yyyy-MM-dd` key GitHub uses.

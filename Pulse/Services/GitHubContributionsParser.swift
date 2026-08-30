@@ -19,8 +19,13 @@ import Foundation
 /// <tool-tip ... for="contribution-day-component-0-52">3 contributions on August 30th.</tool-tip>
 /// ```
 ///
-/// The exact count lives only in the tooltip text, so it is preferred when present and
-/// the bucketed `data-level` is used as a fallback.
+/// The exact count lives only in the tooltip text. GitHub's `data-level` is **not** a
+/// second source for it: it is a quartile bucket relative to the account's own busiest
+/// day, so the same level stands for wildly different counts on different accounts.
+/// Losing the tooltips therefore means losing the data, not falling back to a coarser
+/// version of it, and this parser treats it that way — no tooltips at all, or tooltips
+/// for fewer than half the day cells, yields no days rather than a plausible-looking
+/// fabrication presented as fresh truth.
 public enum GitHubContributionsParser {
 
     /// Parses every calendar day out of `html`.
@@ -29,7 +34,54 @@ public enum GitHubContributionsParser {
     ///   match, which callers must treat as "no data", never as an error to trap on.
     public static func parse(_ html: String) -> [ContributionDay] {
         let tooltips = tooltipCounts(in: html)
+
+        // The tooltips carry the only exact counts in the document. If that element is
+        // renamed or restructured the day cells still parse, so without this guard the
+        // parser would return a full year of level-derived guesses and the screen would
+        // show them as real data. An empty result is the honest outcome.
+        guard !tooltips.isEmpty else { return [] }
+
+        let cells = dayCells(in: html)
+
+        // A level-derived count is only ever a stand-in for one isolated cell whose
+        // tooltip is missing. If coverage is worse than that, the markup has changed
+        // shape and nothing is derived at all.
+        let allowsLevelFallback = tooltips.count * 2 >= cells.count
+
         var days: [ContributionDay] = []
+        days.reserveCapacity(cells.count)
+
+        for cell in cells {
+            if let identifier = cell.identifier, let exact = tooltips[identifier] {
+                days.append(
+                    ContributionDay(date: cell.date, count: max(0, exact), isCountExact: true)
+                )
+            } else if allowsLevelFallback, let level = cell.level {
+                days.append(
+                    ContributionDay(
+                        date: cell.date,
+                        count: ContributionIntensity.approximateCount(forLevel: level),
+                        isCountExact: false
+                    )
+                )
+            }
+        }
+
+        return days
+    }
+
+    // MARK: - Day cells
+
+    /// One day cell of the calendar table, before its count is resolved.
+    private struct DayCell {
+        let date: String
+        let identifier: String?
+        let level: Int?
+    }
+
+    /// Every `<td>` in the document that carries a calendar day.
+    private static func dayCells(in html: String) -> [DayCell] {
+        var cells: [DayCell] = []
 
         for tag in matches(of: dayCellExpression, in: html) {
             guard let cell = capture(1, of: tag, in: html),
@@ -39,17 +91,16 @@ public enum GitHubContributionsParser {
                 continue
             }
 
-            let identifier = attribute("id", in: cell)
-            let level = attribute("data-level", in: cell).flatMap(Int.init)
-            let exactCount = identifier.flatMap { tooltips[$0] }
-            let count = exactCount
-                ?? level.map(ContributionIntensity.representativeCount(forStep:))
-
-            guard let count else { continue }
-            days.append(ContributionDay(date: date, count: max(0, count)))
+            cells.append(
+                DayCell(
+                    date: date,
+                    identifier: attribute("id", in: cell),
+                    level: attribute("data-level", in: cell).flatMap(Int.init)
+                )
+            )
         }
 
-        return days
+        return cells
     }
 
     // MARK: - Tooltips
