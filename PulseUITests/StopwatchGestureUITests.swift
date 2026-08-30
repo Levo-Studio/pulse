@@ -7,14 +7,19 @@ import XCTest
 /// settled in a unit test. These drive the app instead.
 ///
 /// The readout redraws four times a second, and every accessibility query has to
-/// snapshot a tree that is changing underneath it. Queries are therefore kept to the
-/// assertions: taps go to the window rather than to a freshly resolved element, and
-/// each test starts from a terminated app so nothing carries over from the last one.
+/// snapshot a tree that is changing underneath it. Three things keep that in hand: the
+/// readout is addressed by accessibility identifier rather than by a predicate scan
+/// over every static text, taps go to the window rather than to a freshly resolved
+/// element, and each test starts from a terminated app so nothing carries over from
+/// the one before.
 ///
-/// Even so, XCTest's snapshotting still stalls against this screen often enough that
-/// the suite cannot be trusted to gate a merge. It therefore lives in its own shared
-/// scheme rather than in `Pulse`, so the project's build-and-test command stays
-/// deterministic. Run it deliberately whenever the gestures change:
+/// Even so the suite still cannot be trusted to gate a merge. Addressing the readout
+/// by identifier rather than by predicate made it far more reliable — four consecutive
+/// clean runs on their own, one of them at a load average of 9 — but wiring it into the
+/// `Pulse` scheme alongside the unit tests still produced a run where five of the six
+/// cases failed. It therefore keeps its own shared scheme, so the project's
+/// build-and-test command stays deterministic. Run it deliberately whenever the
+/// gestures change:
 ///
 /// ```sh
 /// xcodebuild test -project Pulse.xcodeproj -scheme PulseUITests \
@@ -62,11 +67,11 @@ final class StopwatchGestureUITests: XCTestCase {
         return app
     }
 
-    /// The elapsed readout, picked out by its `HH:MM:SS` shape. The only other text on
-    /// the screen is the five-character time of day.
+    /// The elapsed readout, addressed by the identifier the screen gives it. A
+    /// predicate scan would instead snapshot and filter the whole tree on every read,
+    /// which is what makes querying this screen slow.
     private func readout(in app: XCUIApplication) -> XCUIElement {
-        let shape = NSPredicate(format: "label MATCHES %@", "[0-9]{2}:[0-9]{2}:[0-9]{2}")
-        return app.staticTexts.matching(shape).firstMatch
+        app.staticTexts["stopwatch.readout"]
     }
 
     /// The readout's current value.
