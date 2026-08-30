@@ -11,7 +11,7 @@ import Foundation
 /// the public feed and nothing else; only the base URL is hardcoded, and the username
 /// comes from the Keychain. Unlike the contributions page this is a versioned JSON API
 /// rather than scraped markup, which is why it — and not the heatmap source — is where
-/// timestamps and event types come from.
+/// the time of the day's last push comes from.
 ///
 /// Two limits are load-bearing for callers:
 ///
@@ -175,58 +175,13 @@ private struct WireEvent: Decodable {
 
     let type: String
     let createdAt: Date
-    let payload: WirePayload?
 
     /// The display's view of this entry.
+    ///
+    /// Only pushes are distinguished. The screen reads one fact from this feed — when
+    /// today's last push happened — so every other event type is `other` rather than
+    /// being classified into a distinction nothing renders.
     var asEvent: GitHubEvent {
-        GitHubEvent(kind: kind, createdAt: createdAt)
+        GitHubEvent(kind: type == "PushEvent" ? .push : .other, createdAt: createdAt)
     }
-
-    private var kind: GitHubEvent.Kind {
-        switch type {
-        case "PushEvent":
-            return .push
-        case "PullRequestEvent":
-            return payload?.pullRequestKind ?? .other
-        default:
-            return .other
-        }
-    }
-}
-
-/// The payload fields that distinguish one pull request event from another.
-///
-/// Both readings of "merged" are accepted, because the feed and the documented webhook
-/// payload disagree. The public feed observed for a real account reports
-/// `"action": "merged"` outright and ships a stub pull request object with no `merged`
-/// flag; the documented shape instead reports `"action": "closed"` and carries
-/// `pull_request.merged`. Either is understood, and a close that is not a merge is not
-/// counted as one.
-///
-/// `reopened` is deliberately not counted as an opening. The screen says how many pull
-/// requests were opened today, and a reopening of yesterday's work would inflate that
-/// figure with something the user did not do today.
-private struct WirePayload: Decodable {
-
-    let action: String?
-    let pullRequest: WirePullRequest?
-
-    var pullRequestKind: GitHubEvent.Kind {
-        switch action?.lowercased() {
-        case "opened":
-            return .pullRequestOpened
-        case "merged":
-            return .pullRequestMerged
-        case "closed":
-            return pullRequest?.merged == true ? .pullRequestMerged : .other
-        default:
-            return .other
-        }
-    }
-}
-
-/// The one pull request field that matters, present only in the documented shape.
-private struct WirePullRequest: Decodable {
-
-    let merged: Bool?
 }

@@ -5,13 +5,16 @@ import UIKit
 
 @testable import Pulse
 
-/// Renders the GitHub screen at real device sizes and checks the block of small labels
-/// at its foot still fits.
+/// Renders the GitHub screen at real device sizes and checks that it fits the frame
+/// and fills it.
 ///
-/// The design reference ends the frame with one line; Pulse can end it with four. That
-/// is the kind of change that looks fine on a large phone and runs off the bottom of a
-/// small one, so the check is made by rendering the actual view rather than by
-/// re-deriving its arithmetic here: the render is what the user sees.
+/// Two failure modes are pinned here, because the layout has to answer both at once.
+/// Content running off the bottom of a small screen is the obvious one. The other is
+/// the reason this screen was reworked: the reference's fixed `+96` and `+110` offsets
+/// were authored for a 360 × 780 frame, and on a taller phone they left two large dead
+/// bands with everything bunched around them. Both are checked by rendering the actual
+/// view and reading its pixels rather than by re-deriving the arithmetic here — the
+/// render is what the user sees.
 ///
 /// The shortest device the deployment target allows is 375 × 667, which has no
 /// simulator runtime available on this machine, so it is covered here at exactly that
@@ -33,21 +36,21 @@ struct GitHubScreenLayoutTests {
         CGSize(width: 393, height: 852)
     ]
 
-    @Test("The footer block fits above the bottom edge at every supported size",
+    @Test("The screen fits above the bottom edge at every supported size",
           arguments: GitHubScreenLayoutTests.sizes)
-    func footerFitsTheFrame(size: CGSize) async throws {
+    func contentFitsTheFrame(size: CGSize) async throws {
         let model = try await preparedModel()
         // The screen only earns this check with every line present.
-        #expect(model.lastCommitLine != nil)
-        #expect(model.pullRequestLine != nil)
+        #expect(model.lastCommitTime != nil)
         #expect(model.lastCheckLine != nil)
 
         let image = try render(model: model, size: size)
-        let lowestLitRow = try lowestLitRow(in: image)
+        let rows = try litRows(in: image)
+        let height = CGFloat(image.height)
 
         // A margin below the last line, rather than merely "not clipped": text touching
         // the bottom edge is already a layout that has run out of room.
-        let bottomMargin = CGFloat(image.height) - CGFloat(lowestLitRow)
+        let bottomMargin = height - CGFloat(try #require(rows.last))
         #expect(bottomMargin >= 8 * image.scale)
 
         if ProcessInfo.processInfo.environment["PULSE_RENDER_OUTPUT"] != nil {
@@ -56,6 +59,33 @@ struct GitHubScreenLayoutTests {
             try write(image, to: url)
             print("PULSE_RENDER_WROTE \(url.path)")
         }
+    }
+
+    @Test("The layout fills the frame instead of clustering around fixed offsets",
+          arguments: GitHubScreenLayoutTests.sizes)
+    func contentFillsTheFrame(size: CGSize) async throws {
+        let model = try await preparedModel()
+        let image = try render(model: model, size: size)
+        let rows = try litRows(in: image)
+        let height = CGFloat(image.height)
+
+        let first = CGFloat(try #require(rows.first))
+        let last = CGFloat(try #require(rows.last))
+
+        // The header sits just under the reference's 70 unit top inset, and the change
+        // username action just above the bottom padding. Anything much further in means
+        // the layout has stopped reaching the edges of the device it is on.
+        #expect(first <= 0.15 * height)
+        #expect(height - last <= 0.10 * height)
+
+        // No void. This is the regression the rework exists for: at 852 points the
+        // reference's fixed offsets left bands of roughly a third of the screen with
+        // nothing in them, above and below the count.
+        let void = largestGap(in: rows)
+        #expect(
+            CGFloat(void) <= 0.3 * height,
+            "The largest empty band is \(void) of \(Int(height)) rows at \(size)"
+        )
     }
 
     // MARK: - Rendering
@@ -83,12 +113,12 @@ struct GitHubScreenLayoutTests {
         return RenderedImage(cgImage: image, scale: 3)
     }
 
-    /// The lowest row of the render carrying anything but the black field.
+    /// Every row of the render carrying anything but the black field, in order.
     ///
     /// Every element on this screen is drawn in a grey or white on pure black, so "lit"
     /// is simply "brighter than the background". The faintest label in use is `#3D3D3D`,
     /// well above the threshold.
-    private func lowestLitRow(in image: RenderedImage) throws -> Int {
+    private func litRows(in image: RenderedImage) throws -> [Int] {
         let width = image.width
         let height = image.height
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -106,13 +136,23 @@ struct GitHubScreenLayoutTests {
         )
         context.draw(image.cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
 
-        for row in stride(from: height - 1, through: 0, by: -1) {
+        var rows: [Int] = []
+        for row in 0..<height {
             for column in 0..<width where pixels[(row * width + column) * 4] > 24 {
-                return row
+                rows.append(row)
+                break
             }
         }
-        Issue.record("The render is entirely black; nothing was drawn.")
-        return height
+
+        if rows.isEmpty {
+            Issue.record("The render is entirely black; nothing was drawn.")
+        }
+        return rows
+    }
+
+    /// The tallest run of unlit rows between the first and last lit ones.
+    private func largestGap(in rows: [Int]) -> Int {
+        zip(rows, rows.dropFirst()).map { $1 - $0 - 1 }.max() ?? 0
     }
 
     private func write(_ image: RenderedImage, to url: URL) throws {
@@ -154,8 +194,8 @@ struct GitHubScreenLayoutTests {
         return try Data(contentsOf: URL(fileURLWithPath: path))
     }
 
-    /// A push and both kinds of pull request event, timestamped now so they count as
-    /// today wherever the suite runs.
+    /// A push, timestamped now so it counts as today wherever the suite runs, beside
+    /// two entries of a type the screen no longer reads.
     private static var events: String {
         let formatter = ISO8601DateFormatter()
         let now = formatter.string(from: Date().addingTimeInterval(-1800))

@@ -45,18 +45,16 @@ struct GitHubActivityModelTests {
         return model
     }
 
-    private func feed(pushedAt: String, opened: Int, merged: Int, on day: String) -> String {
+    /// A feed page holding one push, plus `others` entries of a type the screen does
+    /// not read — the shape a real page has, where a push is a minority of what is in
+    /// it.
+    private func feed(pushedAt: String, others: Int = 0, on day: String = "2026-08-30") -> String {
         var entries = [
             #"{"type":"PushEvent","created_at":"\#(pushedAt)","payload":{"ref":"refs/heads/main"}}"#
         ]
-        for index in 0..<opened {
+        for index in 0..<others {
             entries.append(
                 #"{"type":"PullRequestEvent","created_at":"\#(day)T08:0\#(index):00Z","payload":{"action":"opened","number":\#(index)}}"#
-            )
-        }
-        for index in 0..<merged {
-            entries.append(
-                #"{"type":"PullRequestEvent","created_at":"\#(day)T09:0\#(index):00Z","payload":{"action":"merged","number":\#(index)}}"#
             )
         }
         return "[\(entries.joined(separator: ","))]"
@@ -68,22 +66,23 @@ struct GitHubActivityModelTests {
 
     // MARK: - Lines
 
-    @Test("A push in the window restores the reference's LAST COMMIT AT line")
-    func lastCommitLine() async throws {
+    @Test("A push in the window gives the bare time drawn above the count")
+    func lastCommitTime() async throws {
         let store = makeStore()
         defer { store.remove(.gitHubUsername) }
 
         GitHubStubURLProtocol.reset()
-        GitHubStubURLProtocol.eventsBody = Data(
-            feed(pushedAt: "2026-08-30T09:23:30Z", opened: 0, merged: 0, on: "2026-08-30").utf8
-        )
+        GitHubStubURLProtocol.eventsBody = Data(feed(pushedAt: "2026-08-30T09:23:30Z").utf8)
 
         let model = makeModel(store: store)
         let now = try date("2026-08-30T09:40:00Z")
         await model.refresh(now: now)
 
+        // The label the reference put in front of this time is gone: position above the
+        // count carries the meaning now, so the value must be the time and nothing else.
         let expected = Self.localMinutes(of: try date("2026-08-30T09:23:30Z"))
-        #expect(model.lastCommitLine == "LAST COMMIT AT: \(expected)")
+        #expect(model.lastCommitTime == expected)
+        #expect(model.lastCommitTime?.count == 5)
     }
 
     @Test("With no push in the window the line is absent, not a placeholder")
@@ -98,83 +97,29 @@ struct GitHubActivityModelTests {
         await model.refresh(now: try date("2026-08-30T09:40:00Z"))
 
         #expect(model.activity != nil)
-        #expect(model.lastCommitLine == nil)
-        // A quiet day shows no pull request line either: a zero would claim something
-        // the public feed cannot support.
-        #expect(model.pullRequestLine == nil)
+        // Absent rather than placeheld: a dash where a time belongs invites being read
+        // as a time, and this one sits directly above the headline count.
+        #expect(model.lastCommitTime == nil)
     }
 
-    @Test("Pull request wording follows what actually happened today")
-    func pullRequestWording() async throws {
-        let store = makeStore()
-        defer { store.remove(.gitHubUsername) }
-
-        let now = try date("2026-08-30T12:00:00Z")
-        let cases: [(Int, Int, String)] = [
-            (2, 0, "PUBLIC PR OPENED: 2"),
-            (0, 3, "PUBLIC PR MERGED: 3"),
-            (2, 1, "PUBLIC PR: 2 OPENED 1 MERGED")
-        ]
-
-        for (opened, merged, expected) in cases {
-            GitHubStubURLProtocol.reset()
-            GitHubStubURLProtocol.eventsBody = Data(
-                feed(pushedAt: "2026-08-30T09:23:30Z", opened: opened, merged: merged, on: "2026-08-30").utf8
-            )
-
-            let model = makeModel(store: store)
-            await model.refresh(now: now)
-
-            #expect(model.pullRequestLine == expected)
-        }
-    }
-
-    @Test("Double-digit counts still read correctly and still fit the line")
-    func doubleDigitCounts() async throws {
+    @Test("A push from an earlier day never reaches the count block", arguments: [0, 3])
+    func stalePushIsNotRendered(others: Int) async throws {
         let store = makeStore()
         defer { store.remove(.gitHubUsername) }
 
         GitHubStubURLProtocol.reset()
         GitHubStubURLProtocol.eventsBody = Data(
-            feed(pushedAt: "2026-08-30T09:23:30Z", opened: 12, merged: 10, on: "2026-08-30").utf8
-        )
-
-        let model = makeModel(store: store)
-        await model.refresh(now: try date("2026-08-30T12:00:00Z"))
-
-        // Thirty characters, against a worst-case character budget of 28 — which is why
-        // the line is checked by measuring it rather than by counting it. Digits are
-        // 0.75 em and spaces 0.625, nowhere near the 0.875 the budget assumes.
-        let line = try #require(model.pullRequestLine)
-        #expect(line == "PUBLIC PR: 12 OPENED 10 MERGED")
-        #expect(line.count == 30)
-        #expect(GitHubLabelMeasurement.width(of: line, size: 10, tracking: 2)
-            <= GitHubHeaderRow.contentWidth)
-    }
-
-    @Test("A push from an earlier day never reaches the line", arguments: [true, false])
-    func stalePushIsNotRendered(hasPullRequests: Bool) async throws {
-        let store = makeStore()
-        defer { store.remove(.gitHubUsername) }
-
-        GitHubStubURLProtocol.reset()
-        GitHubStubURLProtocol.eventsBody = Data(
-            feed(
-                pushedAt: "2026-08-29T18:42:00Z",
-                opened: hasPullRequests ? 1 : 0,
-                merged: 0,
-                on: "2026-08-30"
-            ).utf8
+            feed(pushedAt: "2026-08-29T18:42:00Z", others: others).utf8
         )
 
         let model = makeModel(store: store)
         await model.refresh(now: try date("2026-08-30T09:40:00Z"))
 
-        // Yesterday's push, on a screen that says COMMITS TODAY and carries no date.
+        // Yesterday's push, on a screen that says COMMITS TODAY and carries no date —
+        // and now directly above that headline rather than at the foot of the frame.
         #expect(model.activity?.lastPushAt == nil)
-        #expect(model.lastCommitLine == nil)
-        // The rest of the block is unaffected: one source of silence is not another's.
-        #expect((model.pullRequestLine != nil) == hasPullRequests)
+        #expect(model.lastCommitTime == nil)
+        // The rest of the screen is unaffected: one source of silence is not another's.
         #expect(model.lastCheckLine != nil)
     }
 
@@ -205,7 +150,7 @@ struct GitHubActivityModelTests {
 
         GitHubStubURLProtocol.reset()
         GitHubStubURLProtocol.eventsBody = Data(
-            feed(pushedAt: "2026-08-30T09:23:30Z", opened: 1, merged: 0, on: "2026-08-30").utf8
+            feed(pushedAt: "2026-08-30T09:23:30Z", others: 1).utf8
         )
 
         let model = makeModel(store: store)
@@ -241,15 +186,13 @@ struct GitHubActivityModelTests {
         // Once the quota is back, so is the feed.
         GitHubStubURLProtocol.eventsStatus = 200
         GitHubStubURLProtocol.eventsHeaders = [:]
-        GitHubStubURLProtocol.eventsBody = Data(
-            feed(pushedAt: "2026-08-30T09:50:00Z", opened: 0, merged: 2, on: "2026-08-30").utf8
-        )
+        GitHubStubURLProtocol.eventsBody = Data(feed(pushedAt: "2026-08-30T09:50:00Z").utf8)
 
         await model.refresh(now: resetAt.addingTimeInterval(1))
 
         #expect(GitHubStubURLProtocol.eventsRequestCount == 3)
         #expect(model.eventsFailure == nil)
-        #expect(model.pullRequestLine == "PUBLIC PR MERGED: 2")
+        #expect(model.lastCommitTime == Self.localMinutes(of: try date("2026-08-30T09:50:00Z")))
     }
 
     @Test("A failing events feed leaves the heatmap's own status line alone")
@@ -264,8 +207,7 @@ struct GitHubActivityModelTests {
         await model.refresh(now: try date("2026-08-30T09:40:00Z"))
 
         #expect(model.eventsFailure == .rateLimited(resetAt: nil))
-        #expect(model.lastCommitLine == nil)
-        #expect(model.pullRequestLine == nil)
+        #expect(model.lastCommitTime == nil)
         // The contributions fetch is what the status line speaks for, and it is
         // untouched by the events feed failing.
         #expect(model.lastFailure == .unparsableMarkup)
@@ -420,10 +362,6 @@ struct GitHubHeaderRowTests {
     @Test("Every line the footer can draw fits the content width when measured")
     func footerLinesFitWhenMeasured() {
         let lines = [
-            "LAST COMMIT AT: 23:59",
-            "PUBLIC PR OPENED: 12",
-            "PUBLIC PR MERGED: 12",
-            "PUBLIC PR: 12 OPENED 10 MERGED",
             "NO SUCH USER",
             "NO DATA FOR THIS ACCOUNT",
             "OFFLINE",
@@ -435,6 +373,13 @@ struct GitHubHeaderRowTests {
             let width = GitHubLabelMeasurement.width(of: line, size: 10, tracking: 2)
             #expect(width <= GitHubHeaderRow.contentWidth, "\(line) is \(width) units wide")
         }
+
+        // The bare commit time is the widest thing the count block puts above the
+        // number, and it is set a size larger than anything at the foot.
+        #expect(
+            GitHubLabelMeasurement.width(of: "23:59", size: 16, tracking: 5)
+                <= GitHubHeaderRow.contentWidth
+        )
 
         // The freshness line is a size smaller than the rest of the block.
         #expect(
