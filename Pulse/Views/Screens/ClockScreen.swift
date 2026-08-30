@@ -60,10 +60,21 @@ public struct ClockScreen: View {
             // vice versa. A tap gesture yields to the pager's horizontal drag, so
             // swiping between screens is unaffected.
             .contentShape(Rectangle())
+            // Already taller than the minimum at the reference's size 70, so this
+            // changes nothing there; it matters only for the smaller seconds
+            // readout on a short display.
+            .frame(minHeight: ClockLayout.minimumTouchTarget)
             .onTapGesture(count: 2) { preferences.showsSeconds.toggle() }
             // The readout itself stays the accessibility label — replacing it with
             // the word "Time" would cost a VoiceOver user the value they came for.
-            .accessibilityHint("Double tap to show or hide seconds")
+            //
+            // The double tap has to be published as an action as well as a hint.
+            // Under VoiceOver a double tap *is* activation, so the raw gesture is
+            // unreachable: without `accessibilityAction` the hint would describe
+            // something the user it is written for cannot do.
+            .accessibilityAddTraits(.isButton)
+            .accessibilityHint("Shows or hides seconds")
+            .accessibilityAction { preferences.showsSeconds.toggle() }
 
             PixelLabel(
                 ticker.reading.date,
@@ -120,11 +131,21 @@ public struct ClockScreen: View {
         }
         // The second of the screen's two hit shapes. Scoping it to this line keeps
         // a tap here off the time above, and a tap on the time off this line.
+        //
+        // The line's own ink is about 22 points tall, well under the 44 point
+        // minimum a touch target has to meet, so the shape is grown to that height
+        // before it is taken. The growth is invisible: it moves nothing, because
+        // the gaps around the line are stated as padding on the lines themselves.
+        .frame(minHeight: ClockLayout.minimumTouchTarget)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) { preferences.showsCondition.toggle() }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(weatherAccessibilityLabel(temperature: temperature))
-        .accessibilityHint("Double tap to show or hide the condition")
+        // As with the time: under VoiceOver a double tap is activation, so the
+        // toggle has to be an action rather than only a gesture.
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Shows or hides the condition")
+        .accessibilityAction { preferences.showsCondition.toggle() }
     }
 
     private func weatherAccessibilityLabel(temperature: String) -> String {
@@ -179,6 +200,19 @@ enum ClockLayout {
     /// Space between the date and the temperature: the same flex `gap` plus the
     /// temperature's own `margin-top: 26`.
     static let temperatureGap: CGFloat = dateGap + 26
+
+    /// Smallest side a tappable area may have, **in points**.
+    ///
+    /// The one measurement on this screen that does not pass through
+    /// `PixelMetrics`. Every other number here is a design-reference unit that
+    /// scales with the frame; this one is a physical minimum for a fingertip, so
+    /// scaling it down on a small display would defeat it.
+    ///
+    /// The temperature line's own ink is about 22 points tall, so its hit shape is
+    /// grown to this before it is taken. The growth moves nothing: the gaps around
+    /// the line are stated as padding on the lines themselves, and the line sits 46
+    /// reference units below the date, which is more room than the growth needs.
+    static let minimumTouchTarget: CGFloat = 44
 }
 
 /// The measurements of the weather line, in design-reference units.
