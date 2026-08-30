@@ -86,29 +86,61 @@ public struct UptimeScreen: View {
     }
 }
 
-/// One row of the uptime list: the service name against its status square.
-private struct UptimeRow: View {
+/// The row arithmetic behind name truncation, in design-reference units.
+///
+/// These are the numbers that decide whether a service name can push the status square
+/// off the screen, so they are kept apart from the view and pinned by a test rather
+/// than left as inline literals.
+///
+/// The figures hold at every scale: the widths and the character advance are all
+/// design-reference units, so `PixelMetrics` scales them together. Where the scale is
+/// clamped on a large display the real row is wider than assumed here, so the limit
+/// only ever errs towards truncating early.
+enum UptimeRowMetrics {
 
-    /// Width the name has to itself, in design-reference units: the 360 unit frame
-    /// less the backdrop's 26 units of padding either side, the 11 unit status square
-    /// and the 12 unit gap before it.
-    private static let nameWidthBudget: CGFloat = 360 - (2 * 26) - 11 - 12
+    /// Width of the reference frame's content area: the 360 unit frame less the
+    /// backdrop's 26 units of padding either side.
+    static let contentWidth: CGFloat = 360 - (2 * 26)
 
-    /// Advance of one character of the name, in the same units. Silkscreen is
-    /// fixed-pitch at roughly 0.76 em, and 2 units of tracking follow each glyph.
-    private static let characterWidth: CGFloat = (13 * 0.76) + 2
+    /// Side of the status square.
+    static let squareSide: CGFloat = 11
+
+    /// Horizontal space the row spends between the name and the square: the `HStack`
+    /// spacing either side of the spacer, plus the spacer's own minimum length.
+    static let gapWidth: CGFloat = 3 * 12
+
+    /// Width the name has to itself.
+    static let nameWidthBudget = contentWidth - squareSide - gapWidth
+
+    /// Advance of one character of the name, at size 13 with 2 units of tracking.
+    ///
+    /// Silkscreen is **not** fixed-pitch. Measured from the bundled face, which has an
+    /// em of 1000 units, advances across `A-Z 0-9 - _ .` run 0.375, 0.625, 0.75 and
+    /// 0.875 em, with `M N V W X Y` at the widest. Budgeting against an average would
+    /// under-reserve for any name made of wide glyphs, so the widest advance is used
+    /// and a name can never overrun regardless of which characters it contains.
+    static let characterWidth: CGFloat = (13 * 0.875) + 2
 
     /// How many characters of a name fit on a row.
-    ///
-    /// The figure holds at every scale: the budget and the character advance are both
-    /// design-reference units, so `PixelMetrics` scales them together. Where the scale
-    /// is clamped on a large display the real row is wider than the budget assumes, so
-    /// the limit only ever errs towards truncating early.
-    private static let characterBudget = Int(nameWidthBudget / characterWidth)
+    static let characterBudget = Int(nameWidthBudget / characterWidth)
 
-    /// Marker appended to a shortened name. Three full stops rather than an ellipsis:
-    /// Silkscreen is an ASCII-era face and has no `…` glyph to draw.
-    private static let truncationMarker = "..."
+    /// Marker appended to a shortened name.
+    ///
+    /// Three full stops rather than `…`. The bundled face does carry U+2026, but it
+    /// draws it as one 0.875 em glyph, where three 0.375 em stops read more clearly on
+    /// the pixel grid.
+    static let truncationMarker = "..."
+
+    /// Shortens `name` to what a row can hold.
+    static func displayName(for name: String) -> String {
+        guard name.count > characterBudget else { return name }
+        let kept = characterBudget - truncationMarker.count
+        return name.prefix(max(kept, 1)) + truncationMarker
+    }
+}
+
+/// One row of the uptime list: the service name against its status square.
+private struct UptimeRow: View {
 
     let service: UptimeService
 
@@ -122,7 +154,7 @@ private struct UptimeRow: View {
             // shortened here rather than by relaxing the shared label.
             PixelLabel(displayName, size: 13, tracking: 2, color: PixelTheme.bright)
             Spacer(minLength: metrics(12))
-            PixelCell(color: colour, side: metrics(11))
+            PixelCell(color: colour, side: metrics(UptimeRowMetrics.squareSide))
         }
         .padding(.vertical, metrics(20))
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -135,10 +167,7 @@ private struct UptimeRow: View {
 
     /// The service name, shortened to what the row can hold.
     private var displayName: String {
-        let name = service.name
-        guard name.count > Self.characterBudget else { return name }
-        let kept = Self.characterBudget - Self.truncationMarker.count
-        return name.prefix(max(kept, 1)) + Self.truncationMarker
+        UptimeRowMetrics.displayName(for: service.name)
     }
 
     private var colour: Color {
