@@ -286,10 +286,17 @@ Refresh and failure:
   dash**: the reference has no failure state for this line and an ambient display should
   not nag. The time and the date are never blocked, delayed or degraded by weather or
   location work.
-- Because the line can be absent, the Clock's vertical gaps are stated as **padding on each
-  line, never as stack spacing** — a `VStack` charges its spacing for a conditional child
-  even when the condition is false, which would leave a residual gap behind an absent
-  temperature.
+- The Clock's vertical gaps are stated as **top padding on each line rather than as stack
+  spacing**, because the reference does not space the three lines evenly: it sets `gap: 20`
+  on the container and adds `margin-top: 26` to the temperature alone. One shared spacing
+  value cannot say that. This is about expressing the reference, **not** about the absent
+  line — SwiftUI does not charge stack spacing for a conditional child whose condition is
+  false, so absence costs nothing under either arrangement. `ClockLayoutTests` renders both
+  and pins it.
+- The absence path is verified by **rendering the view and comparing pixels**
+  (`ClockLayoutTests`), not by eyeballing screenshots. Two screenshots of a running clock
+  are taken at different times and differ in the digits, which is exactly the slack that
+  hides a layout regression.
 
 ---
 

@@ -38,13 +38,12 @@ public struct ClockScreen: View {
     public init() {}
 
     public var body: some View {
-        // The stack carries no spacing of its own and every gap is stated as top
-        // padding on the line below it. That is not a style choice: a `VStack`
-        // still charges its spacing for a conditional child whose condition is
-        // false, so with `spacing: 20` an absent temperature left a residual gap
-        // and shifted the date down. With the gaps in the padding, a line that is
-        // not drawn costs nothing, and the two-line clock renders exactly as it
-        // did before the temperature existed.
+        // The stack carries no spacing of its own; every gap is stated as top
+        // padding on the line below it, from `ClockLayout`. The reference does not
+        // space these lines evenly — it sets `gap: 20` on the container and then
+        // adds `margin-top: 26` to the temperature alone — so one shared spacing
+        // value cannot express the layout on its own, and putting each gap on the
+        // line it precedes says directly what the reference says.
         PixelScreenBackdrop(spacing: 0) {
             PixelLabel(
                 preferences.showsSeconds ? ticker.reading.timeWithSeconds : ticker.reading.time,
@@ -160,10 +159,18 @@ public struct ClockScreen: View {
 /// The reference frame lays its three lines out with `gap: 20` on the flex
 /// container and an extra `margin-top: 26` on the temperature, so the drop from
 /// the date to the temperature is deliberately larger than the drop from the time
-/// to the date. Both numbers are stated here as top padding on the line below the
-/// gap rather than as stack spacing, because a `VStack` charges its spacing for a
-/// conditional child even when the condition is false: with the gap in the
-/// spacing, an absent temperature left a residual gap behind and moved the date.
+/// to the date.
+///
+/// Both numbers are stated here as top padding on the line below the gap rather
+/// than as stack spacing. A single stack spacing cannot express a layout whose
+/// gaps differ, so it would have to be the 20 with the extra 26 bolted on
+/// somewhere else; stating each gap on the line it precedes keeps the two numbers
+/// in one place and next to the reference they come from.
+///
+/// This is a matter of expression, not of behaviour — SwiftUI does **not** charge
+/// stack spacing for a conditional child whose condition is false, so the absent
+/// temperature line costs nothing either way. `ClockLayoutTests` renders both
+/// arrangements and pins that.
 enum ClockLayout {
 
     /// Space between the time and the date — the reference's flex `gap`.
