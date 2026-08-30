@@ -188,10 +188,17 @@ schema: the project list sits at `data.projects`, beside the calling key's
 metadata at `data.key`. Only the three fields the screen draws are decoded —
 `name`, `currentStatus` and `lastCheckedAt` — and everything else the API sends
 is ignored rather than rejected, so the endpoint can grow without breaking the
-app. A missing `data` or `projects` member is an error, not an empty result:
-"nothing is monitored" and "this is not the response we expect" must never look
-the same on screen. The key's `keyPrefix` is deliberately not decoded — it is a
-fragment of the user's own token, and a value never held cannot be leaked.
+app. The key's `keyPrefix` is deliberately not decoded — it is a fragment of the
+user's own token, and a value never held cannot be leaked.
+
+Strictness follows one rule: a field the screen cannot render without is
+required, a field it can live without degrades rather than failing the response.
+`data`, `projects` and a project's `name` are strict — "nothing is monitored" and
+"this is not the response we expect" must never look the same on screen, and a
+row with no name cannot be drawn. `currentStatus` and `lastCheckedAt` are
+lenient: an unusable one costs that project its state or its check time and
+nothing more. Blanking every row over a field no row needs is the failure this
+decoder exists to avoid.
 
 `currentStatus` is one of `up`, `slow`, `degraded`, `down` and `unknown`. The
 reference draws four colours, so `slow` and `degraded` share the amber dot.
@@ -200,9 +207,11 @@ and so does an absent one.
 
 `LAST CHECK` shows the newest `lastCheckedAt` in the response — the API's own
 clock, when the states on screen were actually observed — rather than when the
-app last fetched them. Where the response carries no timestamp the line stays as
-dashes; the local fetch time is never quietly substituted for a different
-quantity under the same label.
+app last fetched them. Where the response carries no usable timestamp the line
+stays as dashes; the local fetch time is never quietly substituted for a
+different quantity under the same label. A timestamp ahead of the device clock is
+drawn as it was sent rather than clamped to now, so a clock skew shows rather
+than hiding behind a plausible time.
 
 <p align="center">
   <img src="docs/uptime.svg" alt="Uptime screen: service status resolving with the refresh countdown ticking down" width="200">
