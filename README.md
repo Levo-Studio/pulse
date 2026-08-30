@@ -7,11 +7,12 @@ A small ambient pixel display for iOS.
 Pulse is not an app you interact with much. It is meant to be left running on a
 spare phone propped up on a desk or a shelf — a dedicated little display that
 shows one thing at a time, in a pixel typeface, white on pure black, with nothing
-else on screen. No navigation bar, no tab bar, no status bar, no settings screen.
+else on screen. No navigation bar, no tab bar, no status bar, and no chrome around
+the settings — they are just another page.
 You swipe sideways to change what it is showing, and otherwise you leave it alone.
 
-There are four screens: **Clock**, **Stopwatch**, **GitHub**, and **Uptime**, in
-that order, reachable by horizontal swipe. The app is **dark-mode only** — there
+There are five screens: **Clock**, **Stopwatch**, **GitHub**, **Uptime** and
+**Settings**, in that order, reachable by horizontal swipe. The app is **dark-mode only** — there
 is no light appearance and no theme switch, because a light appearance would
 defeat the point.
 
@@ -57,7 +58,10 @@ there is no fix, or if the request fails, the line is simply absent and the scre
 renders exactly as it would without it — no error text, no placeholder.
 
 Double-tapping the time switches the readout to `HH:MM:SS` and back, and
-double-tapping the weather hides the condition symbol. Both choices are remembered.
+double-tapping the weather hides the condition symbol. Both choices are remembered,
+and both are also rows on the [Settings](#settings) screen for anyone who never
+finds the gestures — the two surfaces write the same values, so a change on either
+is immediately true on the other.
 The seconds readout is drawn at 48 rather than the reference's 70, because an
 eight-character time does not fit the content width at 70 — 48 is the size the
 reference itself uses for the stopwatch's own eight-character readout. With seconds
@@ -217,6 +221,48 @@ than hiding behind a plausible time.
   <img src="docs/uptime.svg" alt="Uptime screen: service status resolving with the refresh countdown ticking down" width="200">
 </p>
 
+### Settings
+
+The last page. Four rows: the **uptime API key**, the **GitHub username**, and the
+Clock's two display preferences — **seconds** and **weather condition**. Nothing
+else, no chrome, no navigation bar; you reach it by swiping past Uptime like every
+other screen.
+
+The design reference has no settings frame, so the screen is built from the
+vocabulary the reference does define rather than an invented one. The row is the
+Uptime list's row — the setting's name on the left, an indicator square on the
+right, 20 units of vertical padding, a one-unit hairline separator underneath —
+with the row's current value on a second, fainter line under the name. The square
+uses the palette's own "no data" grey for *off* and *not set*, exactly as an
+unknown service does, so the screen needed no colour the reference does not carry.
+It is the least-used of the five screens and is drawn to stay quiet.
+
+The credential rows do not re-implement anything. Tapping one opens the **same
+prompt** the owning screen opens, so masking, the `SHOW` control, the notice slot
+and the Keychain write semantics exist once. `CHANGE USERNAME` on the GitHub screen
+and `CHANGE API KEY` on the Uptime screen stay where they were: Settings is an
+additional route to them, not a replacement.
+
+What each row reports is deliberate:
+
+- The API key row says **`SET` or `NOT SET`, and nothing else** — never the value,
+  never a prefix of it, never its length. Whether a key exists is answered by a
+  Keychain query that returns no data at all, so the key is never copied out of the
+  Keychain into the screen. A value never held cannot be drawn or logged.
+- The username row shows the handle in full. It is not a credential.
+- The preference rows read and write the very same object the Clock reads, so a
+  toggle here shows on the Clock without a relaunch, and a double tap on the Clock
+  shows here.
+
+**No row clears a credential.** A stored key may be the only copy of a long opaque
+token — the same reasoning that stops a `401` from deleting it — so replacing is the
+only destructive act the screen offers.
+
+Because the screen is now something an idle phone can be swiped into, arriving on it
+is inert: nothing is written, nothing is fetched, and no field takes focus. Every
+change costs a deliberate tap, and each row is a button rather than a tap gesture,
+so a swipe passing through cannot toggle anything on the way.
+
 ---
 
 ## Setup
@@ -264,8 +310,11 @@ client are injected.
 
 Whether a triple tap on the stopwatch resets without also toggling depends on how
 real touches arrive at a real gesture recogniser, which no unit test can observe.
-There is a separate `PulseUITests` target that drives the app on a simulator and
-asserts the four gesture outcomes. It has **its own shared scheme** and is
+The same is true of paging: whether five screens are actually reachable is a
+property of `TabView` and of real drags, not of any value type. There is a separate
+`PulseUITests` target that drives the app on a simulator and asserts the four
+stopwatch gesture outcomes, that all five screens page forward and back, and that a
+preference toggled on the settings screen is on the clock four pages away. It has **its own shared scheme** and is
 deliberately not part of the `Pulse` scheme:
 
 ```sh
@@ -296,6 +345,10 @@ device, once:
   is stored in the **Keychain** and is never logged, never held in the model, and
   never included in an error message. It can be replaced later with
   `CHANGE API KEY` at the foot of the screen.
+- **Settings screen** — the fifth page, and a second route to both. It reports
+  whether a key is stored without ever reading it, shows the handle, opens the same
+  prompts, and carries the Clock's two display preferences as rows. Nothing there
+  clears a credential; replacing is the only way to change one.
 
 Both prompts open with an empty field — a stored value is never pre-filled, least
 of all into a field that can be revealed — and both can be backed out of with
@@ -326,7 +379,7 @@ split between them is enforced:
 | `Models/` | Value types only, **no I/O**. `ClockReading` (two formatted strings), `StopwatchState` (start timestamp plus accumulated interval), `ContributionDay` / `ContributionCalendar` / `ContributionIntensity`, `UptimeService` / `UptimeStatus` and the `UptimeResponseDecoder` that builds them. |
 | `Services/` | Networking, Keychain, parsing, timers. `GitHubContributionsClient`, `GitHubContributionsParser`, `UptimeAPIClient`, `KeychainStore`, `ClockTicker`. Nothing here imports SwiftUI views. |
 | `PixelRendering/` | The shared display vocabulary: `PixelFont` (font registration and lookup), `PixelTheme` (the palette), `PixelLabel`, `PixelMetrics`, `ContributionHeatmapGrid`. |
-| `Views/` | `PulsePager`, plus the screens under `Views/Screens/` — one file per screen, and the prompts a screen needs alongside them (`GitHubUsernamePrompt.swift`). |
+| `Views/` | `PulsePager`, plus the screens under `Views/Screens/` — one file per screen, and the prompts a screen needs alongside them (`GitHubUsernamePrompt.swift`). `SettingsScreen.swift` reuses the prompts the other screens own rather than adding a second entry surface. |
 
 `design/` holds the design reference and its runtime. It is read-only as far as
 app work is concerned — never edited to make an implementation match. `docs/`
@@ -351,14 +404,17 @@ loop on it (combined with `scenePhase`), and both network screens key their
 polling `.task(id:)` on it — `GitHubScreen` on the active screen plus the stored
 username, `UptimeScreen` on the active screen plus `scenePhase` and whether a key
 is present. Paging away cancels the poll loop rather than leaving the network open
-behind a screen nobody is looking at. When you add a fifth screen that talks to
-anything, gate it the same way.
+behind a screen nobody is looking at. `SettingsScreen` does no polling at all, and
+still gates its one Keychain read on becoming the active screen. When you add a
+sixth screen that talks to anything, gate it the same way.
 
 The counterpart rule: **screens must not assume they stay alive off-screen.**
 `TabView` may tear a page down. Anything that has to survive paging is either
 derived from a timestamp (the stopwatch's elapsed time, the uptime countdown and
 poll schedule) or held above the pager and injected (the `StopwatchState`
-instance, owned by `PulseApp`).
+instance, owned by `PulseApp`; the `ClockPreferences` instance, owned by
+`PulsePager` and handed to the two screens that read it, so the clock and the
+settings rows cannot drift apart).
 
 One Swift detail worth knowing before you add a service: the project builds with
 `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. The uptime client, its models and its
