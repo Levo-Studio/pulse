@@ -80,25 +80,30 @@ nonisolated public enum UptimeResponseDecoder {
     ///
     /// Normalisation lowercases the token and collapses spaces and hyphens into
     /// underscores, so `"Partial Outage"` and `"partial-outage"` both arrive here as
-    /// `partial_outage`. Booleans and numbers are normalised to `"true"` / `"false"`
-    /// and their decimal text before lookup.
+    /// `partial_outage`. Booleans are normalised to `"true"` / `"false"` before lookup.
+    ///
+    /// The vocabulary covers spelling variants of a stated state. It deliberately does
+    /// **not** interpret numeric status codes: they are not standardised across uptime
+    /// products — UptimeRobot, for one, uses `2` for up and `9` for down — so reading
+    /// `1` as up could paint a down service green. An unmapped token becomes
+    /// `.unknown`, which is honest, rather than confidently wrong. Colour words are
+    /// left out for the same reason: they describe a product's own presentation, not a
+    /// state this app can rely on.
     public static let statusVocabulary: [String: UptimeStatus] = [
         // Up
         "up": .operational, "ok": .operational, "operational": .operational,
         "online": .operational, "healthy": .operational, "running": .operational,
         "active": .operational, "pass": .operational, "passing": .operational,
-        "available": .operational, "green": .operational, "good": .operational,
-        "true": .operational, "1": .operational,
+        "available": .operational, "good": .operational, "true": .operational,
         // Impaired
         "degraded": .degraded, "degraded_performance": .degraded, "warning": .degraded,
         "warn": .degraded, "partial": .degraded, "partial_outage": .degraded,
         "impaired": .degraded, "slow": .degraded, "unstable": .degraded,
-        "amber": .degraded, "yellow": .degraded, "orange": .degraded,
         // Down
         "down": .down, "offline": .down, "error": .down, "fail": .down,
         "failed": .down, "failing": .down, "critical": .down, "outage": .down,
         "major_outage": .down, "unhealthy": .down, "unavailable": .down,
-        "stopped": .down, "red": .down, "false": .down, "0": .down,
+        "stopped": .down, "false": .down,
         // Explicitly unknown
         "unknown": .unknown, "paused": .unknown, "pending": .unknown,
         "maintenance": .unknown, "under_maintenance": .unknown, "none": .unknown
@@ -240,8 +245,10 @@ nonisolated enum JSONValue: Decodable {
 
     /// The scalar rendered as text, or `nil` for containers and null.
     ///
-    /// Whole numbers render without a fractional part so an integer state code such
-    /// as `1` looks up as `"1"` rather than `"1.0"`.
+    /// Whole numbers render without a fractional part, so a numeric field reads as
+    /// `"1"` rather than `"1.0"`. Numbers are still not mapped to a state — see
+    /// `UptimeResponseDecoder.statusVocabulary` — but a number used as a service name
+    /// renders as the user would expect.
     var plainText: String? {
         switch self {
         case .string(let value):
