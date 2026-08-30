@@ -61,9 +61,23 @@ stores no weather credential, so the Clock screen ships as time plus date only.
 A centred `HH:MM:SS` readout with the current time of day in a much fainter tone
 beneath it.
 
-**Double-tap anywhere on the screen to start and stop it.** A single tap does
-nothing — deliberately, so that a stray touch while the phone is being nudged
-around a desk cannot start or stop a run. There is no reset control.
+**Double-tap anywhere on the screen to start and stop it, and triple-tap to reset
+it to zero.** A single tap does nothing — deliberately, so that a stray touch while
+the phone is being nudged around a desk cannot start or stop a run. Resetting a
+running stopwatch stops it rather than restarting it from zero: the gesture is the
+only route back to zero, so it has to be able to reach a *stopped* zero, and a
+restart is one further double tap away.
+
+Telling the two gestures apart is not something a pair of tap gestures can do.
+Stacking `onTapGesture(count: 3)` and `onTapGesture(count: 2)` lets the two-tap
+recogniser succeed the instant the second tap lands, so a triple tap starts the
+stopwatch and the third tap arrives as an unrelated single tap; composing them with
+`exclusively(before:)` fails the opposite way, because `TapGesture` has no failure
+timeout and so the three-tap gesture never fails, leaving the double tap dead. The
+screen therefore counts taps itself over a 350 ms window. Only the double tap waits
+that window out, and the wait is purely visual — the toggle is recorded against the
+instant the tap arrived, not the instant the window closed, so the delay never
+enters the reading.
 
 The stopwatch keeps running correctly when you swipe away from it, when you swipe
 back, and while the app is in the background. That is not achieved by keeping a
@@ -198,7 +212,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
-33 tests in 5 suites, written with Swift Testing. They cover the GitHub
+141 tests in 21 suites, written with Swift Testing. They cover the GitHub
 contributions parser against the markup shapes it might be handed, the pixel
 label's line box, the uptime response decoder, the row-truncation arithmetic, and
 the uptime model's failure paths — a rejected key re-prompting without deleting
@@ -206,6 +220,27 @@ the stored one, a `403` not being mistaken for a rejected key, and a server erro
 being reported as itself rather than as a connection failure. Nothing in the
 suite touches the network or the user's own Keychain items; the store and the API
 client are injected.
+
+#### UI tests
+
+Whether a triple tap on the stopwatch resets without also toggling depends on how
+real touches arrive at a real gesture recogniser, which no unit test can observe.
+There is a separate `PulseUITests` target that drives the app on a simulator and
+asserts the four gesture outcomes. It has **its own shared scheme** and is
+deliberately not part of the `Pulse` scheme:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project Pulse.xcodeproj -scheme PulseUITests \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
+
+The stopwatch readout redraws four times a second, and XCTest has to snapshot the
+accessibility tree for every query. Often enough that snapshot stalls with `Lost
+connection to the application`, after which every later assertion in the run reads a
+stale snapshot and fails misleadingly. Keeping the suite out of the `Pulse` scheme
+keeps the command above this section deterministic. Run the UI tests deliberately
+whenever the stopwatch gestures change, and re-run before believing a failure.
 
 ### First use
 
