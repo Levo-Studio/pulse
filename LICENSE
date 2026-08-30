@@ -9,10 +9,12 @@ Noncommercial purposes only. Personal use, research, experiment, testing,
 teaching, education, and use by charitable organizations are permitted; any
 commercial use requires a separate licence from Levo Studio.
 
-Attribution: the Notices section of the licence below requires that this file,
-including the copyright line above, is kept intact in all copies, forks, and
-derivative works, and that any modification is marked as such. Reuse of this
-software therefore carries visible attribution to Levo Studio.
+Attribution is required. The Notices section of the licence below obliges
+anyone who passes on any part of this software to also pass on these terms and
+every plain-text line beginning with `Required Notice:`. This project supplies
+one, so reuse and forks carry attribution to Levo Studio:
+
+Required Notice: Copyright 2026 Levo Studio (https://levo-studio.com)
 
 Third-party components keep their own licences. The bundled Silkscreen
 typeface is licensed under the SIL Open Font License 1.1; its licence text is
