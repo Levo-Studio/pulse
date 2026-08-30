@@ -84,37 +84,66 @@ public struct CredentialPromptScaffold<Field: View>: View {
     }
 
     public var body: some View {
-        ZStack {
-            PixelTheme.background.ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 0) {
-                // The block is anchored to the bottom of the frame rather than the top,
-                // which keeps the field and the submit control within thumb reach.
-                // Clearing the keyboard is not this view's doing: it depends on the
-                // keyboard safe-area inset surviving down from `PulsePager`, which is
-                // why the pager ignores only the container regions.
-                Spacer(minLength: metrics(40))
-
-                heading
-                    .modifier(Entrance(isVisible: hasAppeared, order: 0, reduceMotion: reduceMotion))
-
-                field
-                    .padding(.top, metrics(40))
-                    .modifier(Entrance(isVisible: hasAppeared, order: 1, reduceMotion: reduceMotion))
-
-                noticeSlot
-                    .padding(.top, metrics(18))
-                    .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
-
-                actions
-                    .padding(.top, metrics(14))
-                    .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
+        GeometryReader { proxy in
+            ScrollView(.vertical) {
+                block
+                    // The block is anchored to the bottom of the room it has, which
+                    // keeps the field and the submit control within thumb reach. That
+                    // room is what is left above the keyboard: `PulsePager` ignores
+                    // only the container safe area, so the keyboard inset reaches
+                    // this view and shortens it.
+                    //
+                    // Where the block is taller than the room — a short screen, or
+                    // the change prompt with its cancel row and a notice — it scrolls
+                    // instead of pushing its last rows under the keyboard, and it is
+                    // the heading that goes off the top rather than the submit
+                    // control off the bottom. With room to spare there is nothing to
+                    // scroll and the bounce is suppressed, so it reads as the fixed
+                    // layout it is.
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: proxy.size.height,
+                        alignment: .bottomLeading
+                    )
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-            .padding(.horizontal, metrics(26))
-            .padding(.bottom, metrics(28))
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
+            .defaultScrollAnchor(.bottom)
         }
+        // The frame above a bottom-anchored block is empty, so the prompt takes the
+        // bezel region back while leaving the keyboard region alone. That is the
+        // difference between the whole block fitting above the keyboard and its last
+        // rows being pushed under it.
+        .ignoresSafeArea(.container, edges: .top)
+        // The black field is painted behind rather than stacked in front as a sibling
+        // that ignores the safe area. Such a sibling widens the stack's own ignored
+        // regions, which takes the keyboard inset back off this view. `PulsePager`
+        // fills the rest of the frame with the same black.
+        .background(PixelTheme.background)
         .onAppear { hasAppeared = true }
+    }
+
+    // MARK: - Block
+
+    private var block: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            heading
+                .modifier(Entrance(isVisible: hasAppeared, order: 0, reduceMotion: reduceMotion))
+
+            field
+                .padding(.top, metrics(40))
+                .modifier(Entrance(isVisible: hasAppeared, order: 1, reduceMotion: reduceMotion))
+
+            noticeSlot
+                .padding(.top, metrics(18))
+                .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
+
+            actions
+                .padding(.top, metrics(14))
+                .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
+        }
+        .padding(.horizontal, metrics(26))
+        .padding(.bottom, metrics(28))
     }
 
     // MARK: - Heading
