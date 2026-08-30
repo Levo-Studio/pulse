@@ -51,7 +51,9 @@ nonisolated public struct UptimeService: Sendable, Equatable {
 /// - each entry's name is read from the first key present out of `nameKeys`;
 /// - each entry's state is read from the first key present out of `statusKeys` and
 ///   mapped through `statusVocabulary`; a string that is not in the vocabulary, or a
-///   missing key, yields `.unknown` rather than an error.
+///   missing key, yields `.unknown` rather than an error;
+/// - a non-empty list none of whose entries yielded a row is an error, not an empty
+///   result, so an unrecognised name key cannot silently blank the screen.
 ///
 /// Once the real shape is known this is a one-line correction: add the actual key to
 /// the relevant list, or replace these lookups with concrete `CodingKeys`.
@@ -109,8 +111,9 @@ nonisolated public enum UptimeResponseDecoder {
     /// - Returns: One entry per element of the list, in the order the API sent them.
     ///   Entries with no readable name are dropped, since a nameless row cannot be
     ///   rendered; unreadable states become `.unknown`.
-    /// - Throws: `DecodingError` when the body is not JSON, or is neither an array nor
-    ///   an object containing a list under one of `envelopeKeys`.
+    /// - Throws: `DecodingError` when the body is not JSON, is neither an array nor an
+    ///   object containing a list under one of `envelopeKeys`, or contains entries none
+    ///   of which yielded a row.
     public static func decode(_ data: Data) throws -> [UptimeService] {
         let root = try JSONDecoder().decode(JSONValue.self, from: data)
         guard let entries = list(in: root) else {
@@ -121,19 +124,41 @@ nonisolated public enum UptimeResponseDecoder {
                 )
             )
         }
-        return entries.compactMap(service(from:))
+
+        let services = entries.compactMap(service(from:))
+
+        // A payload that names its services with a key outside `nameKeys` would
+        // otherwise decode successfully to nothing, emptying the list while the
+        // countdown keeps ticking — indistinguishable from monitoring nothing. Since
+        // the schema is unverified that is the likeliest real failure, so it is
+        // raised instead: the caller keeps the previous list and reports the response
+        // as malformed. An API that genuinely returns no services still sends an
+        // empty list, which stays valid and empty.
+        guard !entries.isEmpty, services.isEmpty else { return services }
+        throw DecodingError.dataCorrupted(
+            DecodingError.Context(
+                codingPath: [],
+                debugDescription: "No entry in the response carried a readable service name"
+            )
+        )
     }
 
-    /// Finds the array of service entries in a decoded body.
-    private static func list(in root: JSONValue) -> [JSONValue]? {
+    /// The number of wrapper objects `list(in:)` will look through before giving up.
+    ///
+    /// A payload nests its list at most a level or two deep in practice; the cap keeps
+    /// a deeply nested or self-similar body from walking the whole tree.
+    private static let maximumEnvelopeDepth = 3
+
+    /// Finds the array of service entries in a decoded body, looking through at most
+    /// `maximumEnvelopeDepth` wrapper objects, as in `{"data":{"services":[…]}}`.
+    private static func list(in root: JSONValue, depth: Int = 0) -> [JSONValue]? {
         if case .array(let entries) = root { return entries }
-        guard case .object(let fields) = root else { return nil }
+        guard case .object(let fields) = root, depth < maximumEnvelopeDepth else { return nil }
 
         for key in envelopeKeys {
             guard let value = fields[key] else { continue }
             if case .array(let entries) = value { return entries }
-            // A wrapper may nest one more level, as in `{"data":{"services":[…]}}`.
-            if case .object = value, let nested = list(in: value) { return nested }
+            if case .object = value, let nested = list(in: value, depth: depth + 1) { return nested }
         }
         return nil
     }
