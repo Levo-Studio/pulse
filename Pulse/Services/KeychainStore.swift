@@ -51,6 +51,21 @@ nonisolated public struct KeychainStore {
         return value
     }
 
+    /// Whether an item is stored under `key`, **without reading its value**.
+    ///
+    /// The query asks for no data and no attributes, so the Keychain answers with a
+    /// status and nothing else: the stored bytes are never copied out of the Keychain
+    /// and never exist in the app's memory. This is how the settings screen reports
+    /// that an API key is set — a value never held cannot be drawn, logged or leaked.
+    ///
+    /// Use `string(for:)` only where the value is actually needed, which for the API
+    /// key is the one place that authenticates a request.
+    public func hasValue(for key: Key) -> Bool {
+        var query = baseQuery(for: key)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+    }
+
     /// Stores `value` under `key`, replacing anything already there.
     ///
     /// - Returns: `true` when the write succeeded.

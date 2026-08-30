@@ -32,10 +32,21 @@ public struct ClockScreen: View {
 
     @State private var ticker = ClockTicker()
     @State private var weather = ClockWeatherModel()
-    @State private var preferences = ClockPreferences()
+
+    /// The display preferences this screen's double taps write to.
+    ///
+    /// Owned by `PulsePager` rather than by this screen, because the settings screen
+    /// reads and writes the same two values. One instance means a preference changed
+    /// on either surface is immediately true on the other, and neither has to be
+    /// relaunched to notice.
+    private let preferences: ClockPreferences
 
     /// Creates the screen.
-    public init() {}
+    ///
+    /// - Parameter preferences: The shared clock display preferences.
+    public init(preferences: ClockPreferences) {
+        self.preferences = preferences
+    }
 
     public var body: some View {
         // The stack carries no spacing of its own; every gap is stated as top
@@ -521,6 +532,8 @@ final class ClockWeatherModel {
 }
 
 #Preview {
-    ClockScreen()
+    @Previewable @State var preferences = ClockPreferences()
+
+    ClockScreen(preferences: preferences)
         .background(PixelTheme.background)
 }

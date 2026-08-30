@@ -7,7 +7,7 @@ Levo Studio rules; where the two disagree, the rules in this file win.
 
 ## 1. What Pulse is
 
-Pulse is a small ambient pixel-display iOS app. It shows four full-screen, swipeable
+Pulse is a small ambient pixel-display iOS app. It shows five full-screen, swipeable
 screens. The app is **dark-mode only** — there is no light appearance, and no user-facing
 theme switch.
 
@@ -17,10 +17,11 @@ theme switch.
 | 2 | Stopwatch | `00:00:00` readout, double-tap to start/stop, triple-tap to reset, small time-of-day readout below |
 | 3 | GitHub | Commits-today number and contribution heatmap |
 | 4 | Uptime | List of Levo Studio projects with status dots, last check time, countdown to next refresh |
+| 5 | Settings | The two stored credentials and the two clock display preferences, one row each |
 
 Behavioural requirements:
 
-- All four screens are reachable by horizontal swipe, in the order above.
+- All five screens are reachable by horizontal swipe, in the order above.
 - **Stopwatch state persists across screen switches.** Swiping away from a running
   stopwatch and back must not reset or pause it. Elapsed time is derived from a start
   timestamp, never accumulated by a timer tick, so it stays correct while the screen is
@@ -28,6 +29,36 @@ Behavioural requirements:
 - On first use the GitHub screen asks the user for their own GitHub username, and the
   Uptime screen asks for their own API key. Both are stored in the **Keychain**, never in
   `UserDefaults`, never in a plist, never in source.
+- **The Settings screen is where credentials and clock preferences live**, and it is an
+  additional route to them rather than a replacement: `CHANGE USERNAME` on the GitHub
+  screen and `CHANGE API KEY` on the Uptime screen stay, and so do the Clock's double
+  taps. It carries four rows — the uptime API key, the GitHub username, and the Clock's
+  two display preferences — and it holds no state of its own:
+  - The credential rows open the **same prompts** the owning screens open
+    (`CredentialPromptScaffold` with `PixelCredentialField`), so masking, the reveal
+    control, the notice slot and the Keychain write semantics are defined once.
+  - Whether an API key is stored is answered by `KeychainStore.hasValue(for:)`, a query
+    that returns **no data at all**. The key's value is never read into the screen, and
+    the row says only `SET` or `NOT SET` — never the value, a prefix of it, or its
+    length. The GitHub handle is not a credential and is shown in full.
+  - **No row clears a credential.** A stored key may be the user's only copy of an opaque
+    token — the same reasoning that forbids deleting it on a `401` — so replacing is the
+    only destructive act offered.
+  - The preference rows read and write the **same `ClockPreferences` instance** the Clock
+    screen uses, owned by `PulsePager`. A change on either surface is immediately true on
+    the other; neither screen may hold its own copy.
+  - Arriving on the screen is **inert**: nothing is written, nothing is fetched, no field
+    takes focus. Every mutation is a `Button` tap, so a swipe through the screen during
+    ambient use cannot change anything.
+- **A credential prompt releases its focus when the pager leaves its screen**, through
+  `releasesFocusWhenPagedAway(from:isFocused:)`. A prompt takes focus on appear, and the
+  keyboard it raises belongs to the window rather than the page, so without this it
+  survives the swipe: undrawn on the next screen, but still claiming the `.keyboard`
+  inset the pager deliberately honours. Centred screens only recentre; the settings
+  list loses its last row and the hint beneath it, on the default first-run path where
+  the uptime screen prompts for a key and the next swipe lands on settings. Every prompt
+  must pass the screen it is drawn on, because settings shows the same prompts as the
+  screens that own the credentials.
 - The Clock screen has two display preferences, both toggled by a double tap and both
   stored in `UserDefaults` under a `clock.` prefix — never the Keychain, which is reserved
   for credentials:
@@ -55,6 +86,14 @@ description in this file or from memory; the HTML is authoritative.
 If a detail is not visible in the reference, **do not guess** — implement the most
 conservative reading and record the ambiguity in the pull request description.
 
+The reference has **no settings frame and no onboarding frame**. Those screens are
+therefore assembled from the vocabulary the reference does define — the pure black
+field, the `PixelTheme` palette, letter-spaced uppercase pixel labels, flat surfaces,
+no glow — and they borrow an existing pattern rather than inventing one: the settings
+rows are the uptime list's row, name on the left and an indicator square on the right,
+20 units of vertical padding and a one-unit `PixelTheme.separator` hairline, with the
+row's current value on a second, fainter line under the name.
+
 ### Tokens extracted from the reference
 
 These are transcribed from `design/Pulse.dc.html` for convenience. If they ever disagree
@@ -66,7 +105,7 @@ Screen surface and type:
 
 | Token | Value | Used for |
 |---|---|---|
-| Screen background | `#000000` | All four screens |
+| Screen background | `#000000` | All five screens |
 | Primary text | `#FFFFFF` | Clock time, stopwatch time, commit count |
 | Bright label | `#E6E6E6` | GitHub username, uptime service names |
 | Secondary label | `#525252` | Date, clock temperature and its condition indicator, "COMMITS TODAY", the bare last-commit time above it |
