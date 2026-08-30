@@ -113,8 +113,18 @@ Carry these forward; do not silently resolve them.
   specified anywhere in the brief and the app stores no weather API credential. It is
   **not implemented**; the Clock screen ships as time plus date only.
 - The GitHub frame shows `LAST COMMIT AT: 13:58`. The contributions page exposes only
-  per-day totals, not commit timestamps, so this value is not derivable from the documented
-  data source. It is **not implemented**.
+  per-day totals, so the line is sourced from the public events API instead (see §3),
+  from the newest public push **of today**. Two caveats stand: the feed timestamps the
+  push, not the authoring of the commit inside it, and it sees public activity only, so
+  a day's work in a private repository is invisible to it. The line is scoped to today
+  because it carries no date and sits under a `COMMITS TODAY` headline, where a time
+  from earlier in the 90-day window would read as today's. With no public push today it
+  is omitted, never placeheld and never filled with an older one.
+- The GitHub header shows the current time as `HH:MM:SS`, where the reference frame
+  shows `14:32` and only the uptime frame uses seconds. This is a **deliberate
+  deviation, requested explicitly by the repository owner** — not an oversight and not a
+  transcription error. Do not "correct" it back to `HH:MM`. The one-second ticker behind
+  it runs only while the screen is visible and the app is foregrounded.
 - The frames are drawn with a `7 px #1B1D1E` rounded border. That is device-bezel chrome in
   the canvas mock, not app UI. Do not draw a border inside the app.
 
@@ -155,6 +165,46 @@ Unauthenticated, public.
 This constraint must be restated in a comment at the parser and in the README.
 
 **Do not** switch to the authenticated GraphQL API. Pulse stores no GitHub token by design.
+
+### GitHub public events
+
+```
+GET https://api.github.com/users/{username}/events/public?per_page=100
+Accept: application/vnd.github+json
+```
+
+Unauthenticated, public, and **no token is stored** — the same standing rule as every
+other source in this app. Only the base URL is hardcoded; the username comes from the
+Keychain.
+
+This is the second GitHub source and it does not replace the first. It is a documented
+JSON API rather than scraped markup, and it is where the screen's `LAST COMMIT AT` line,
+today's pull request activity and the freshness line come from. The heatmap and the
+commits-today headline stay on the contributions page: only that source has per-day
+totals.
+
+Everything the screen draws from this feed is **scoped to the user's own today**, in the
+device's time zone — the last push as much as the pull request counts. The window is 90
+days deep and nothing on the screen carries a date, so an unscoped figure from it would
+be read as today's. Where there is nothing today, the line is omitted.
+
+Its limits are part of the contract and must be carried into anything built on it:
+
+- **Public activity only.** Contributions to private repositories never appear here,
+  whatever the account's "include private contributions" setting does to the heatmap.
+  The two sources may therefore legitimately disagree, and usually in one direction —
+  the heatmap shows more than the events imply. **Do not reconcile them.** Anything
+  rendered from this feed is labelled as public so it cannot be read as an account-wide
+  total.
+- **60 requests per hour per IP**, shared with everyone else behind that address, so the
+  quota can be spent by someone else entirely. Exhaustion answers `403` (or `429`) with
+  `x-ratelimit-remaining: 0`. That must degrade gracefully: keep showing the last good
+  data, back off until `x-ratelimit-reset`, never spin, never crash. This endpoint is
+  polled no more often than the contributions page and reuses its cadence.
+- **A window, not a history** — roughly the last 300 events or 90 days. Ample for
+  "today"; it must never be presented as a record of anything longer.
+- **Events lag reality by up to about five minutes**, which is why the screen states
+  when it last fetched rather than implying live data.
 
 ---
 
