@@ -89,13 +89,38 @@ public struct UptimeScreen: View {
 /// One row of the uptime list: the service name against its status square.
 private struct UptimeRow: View {
 
+    /// Width the name has to itself, in design-reference units: the 360 unit frame
+    /// less the backdrop's 26 units of padding either side, the 11 unit status square
+    /// and the 12 unit gap before it.
+    private static let nameWidthBudget: CGFloat = 360 - (2 * 26) - 11 - 12
+
+    /// Advance of one character of the name, in the same units. Silkscreen is
+    /// fixed-pitch at roughly 0.76 em, and 2 units of tracking follow each glyph.
+    private static let characterWidth: CGFloat = (13 * 0.76) + 2
+
+    /// How many characters of a name fit on a row.
+    ///
+    /// The figure holds at every scale: the budget and the character advance are both
+    /// design-reference units, so `PixelMetrics` scales them together. Where the scale
+    /// is clamped on a large display the real row is wider than the budget assumes, so
+    /// the limit only ever errs towards truncating early.
+    private static let characterBudget = Int(nameWidthBudget / characterWidth)
+
+    /// Marker appended to a shortened name. Three full stops rather than an ellipsis:
+    /// Silkscreen is an ASCII-era face and has no `…` glyph to draw.
+    private static let truncationMarker = "..."
+
     let service: UptimeService
 
     @Environment(\.pixelMetrics) private var metrics
 
     var body: some View {
         HStack(alignment: .center, spacing: metrics(12)) {
-            PixelLabel(service.name, size: 13, tracking: 2, color: PixelTheme.bright)
+            // `PixelLabel` is deliberately `fixedSize`, so it cannot be compressed by
+            // the spacer: an overlong name would push the status square off-screen.
+            // Names come from the API and are not under the app's control, so they are
+            // shortened here rather than by relaxing the shared label.
+            PixelLabel(displayName, size: 13, tracking: 2, color: PixelTheme.bright)
             Spacer(minLength: metrics(12))
             PixelCell(color: colour, side: metrics(11))
         }
@@ -106,6 +131,14 @@ private struct UptimeRow: View {
                 .fill(PixelTheme.separator)
                 .frame(height: metrics(1))
         }
+    }
+
+    /// The service name, shortened to what the row can hold.
+    private var displayName: String {
+        let name = service.name
+        guard name.count > Self.characterBudget else { return name }
+        let kept = Self.characterBudget - Self.truncationMarker.count
+        return name.prefix(max(kept, 1)) + Self.truncationMarker
     }
 
     private var colour: Color {
