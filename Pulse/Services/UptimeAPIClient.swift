@@ -27,11 +27,16 @@ nonisolated public struct UptimeAPIClient: Sendable {
         /// The request never completed — offline, DNS, TLS, timeout.
         case unreachable
 
-        /// The API answered with an unexpected status code.
+        /// The API answered with an unexpected status code, `500` included.
+        ///
+        /// The documented `404 PROJECT_NOT_FOUND` arrives here too. It names a single
+        /// project and `listall` names none, so it has no distinct meaning on this
+        /// endpoint and is deliberately not given a case of its own: inventing one
+        /// would claim knowledge the documentation does not give.
         case server(status: Int)
 
-        /// The body could not be read as a list of services. The body itself is not
-        /// carried here: it may contain infrastructure detail.
+        /// The body was not the documented `{"data":{"projects":[…]}}` envelope. The
+        /// body itself is not carried here: it may contain infrastructure detail.
         case malformedResponse
     }
 

@@ -167,12 +167,84 @@ GET https://tickets.levo-studio.com/api/uptime/listall
 Authorization: Bearer <key>
 ```
 
-- The key is entered by the user on first use and stored in the Keychain.
+- The key is entered by the user on first use and stored in the Keychain. Keys are
+  prefixed **`lsu_`**. Never log it, never write it to source, a plist or a fixture.
 - Poll every **20 seconds, only while the Uptime screen is visible.** Polling stops when
   the user swipes away and when the app leaves the foreground.
-- The countdown to the next refresh is computed **client-side** from the last check time.
-- An unauthenticated request returns `401 {"error":"Unauthorized","code":"UNAUTHORIZED"}`.
-  Handle that as "key rejected" and re-prompt, rather than showing it as a network error.
+- The countdown to the next refresh is computed **client-side** from the timestamp of the
+  last request.
+
+**Response schema — documented by the repository owner, authoritative.** The project list
+is at `data.projects`; the calling key's metadata is at `data.key`.
+
+```json
+{
+  "data": {
+    "key": { "id": "uuid", "name": "Statuspage", "keyPrefix": "lsu_abcd1234" },
+    "projects": [
+      {
+        "id": "notion-page-id",
+        "name": "Levo Studio Analytics",
+        "customer": "Julius Grimm",
+        "domain": "analytics.levo-studio.com",
+        "category": "apps-internal",
+        "serverLocation": "DE",
+        "hostingPrice": 42,
+        "currentStatus": "up",
+        "lastCheckedAt": "2026-06-13T12:00:00.000Z",
+        "lastStatusChangeAt": "2026-06-13T11:30:00.000Z",
+        "monitoringPausedAt": null,
+        "consecutiveFailureCount": 0,
+        "summary": {
+          "totalChecks": 120, "successfulChecks": 118, "degradedChecks": 2,
+          "downChecks": 0, "uptimePercent": 100, "avgResponseMs": 180,
+          "medianResponseMs": 170, "p95ResponseMs": 260, "minResponseMs": 120,
+          "maxResponseMs": 3200, "latestResponseMs": 175,
+          "latestCheckedAt": "2026-06-13T12:00:00.000Z", "incidentCount": 0
+        }
+      }
+    ]
+  }
+}
+```
+
+- Decoding is plain `Codable` against this shape. Only the fields the screen draws are
+  decoded — `name`, `currentStatus`, `lastCheckedAt` — and every other field is ignored
+  rather than rejected, so the endpoint can grow without breaking the app. A **missing
+  `data` or `projects` member is an error**, not an empty result: an empty list and a
+  response that is not this shape must never look the same on screen.
+- `data.key.keyPrefix` is **deliberately not decoded.** It is a fragment of the user's own
+  bearer token and the app has no use for it; a value never held cannot be leaked.
+- `currentStatus` is one of **`up`, `slow`, `degraded`, `down`, `unknown`**. Only `down`
+  reduces the reported uptime percentage. The reference draws four colours, so the mapping
+  is:
+
+  | `currentStatus` | Square | Colour |
+  |---|---|---|
+  | `up` | Operational | `#22C55E` |
+  | `slow`, `degraded` | Degraded | `#F59E0B` |
+  | `down` | Down | `#EF4444` |
+  | `unknown`, absent, **anything else** | Unknown | `#2A2D2E` |
+
+  A value outside that vocabulary maps to **unknown, never to a guessed state**. The
+  mapping lives only in `UptimeStatus.init(apiValue:)`.
+- `LAST CHECK` is drawn from the newest `lastCheckedAt` in the response — the API's own
+  clock, when the states on screen were actually observed — not from when the app last
+  fetched. With no timestamp in the response the line stays as dashes; the device's fetch
+  time is never substituted for it, because the two are different quantities and the line
+  carries no label distinguishing them.
+
+Errors:
+
+- `401 {"error":"Unauthorized","code":"UNAUTHORIZED"}` — missing or invalid key. Handled as
+  "key rejected": re-prompt rather than showing a network error, and **never delete the
+  stored key**, which may be the user's only copy.
+- `403` is **not** folded into that. Authenticated but not permitted cannot be fixed by
+  re-typing the same key, so it is reported as a server error.
+- `404 PROJECT_NOT_FOUND` — names a single project, and `listall` names none, so it has no
+  distinct meaning on this endpoint and gets no case of its own; it is reported as a
+  server error like any other unexpected status.
+- `500` — server error, reported as itself.
 
 ### GitHub contributions
 
