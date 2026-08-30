@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import Testing
 
@@ -96,13 +97,52 @@ struct WeatherResponseDecoderTests {
         #expect(reading.displayText == expected)
     }
 
-    @Test("The degree sign the display uses is U+00B0, which the bundled face carries")
+    @Test("The display's suffix is U+00B0 and survives the label's uppercasing")
     func degreeSignCodePoint() throws {
         let reading = try #require(TemperatureReading(celsius: 21))
 
         #expect(reading.displayText.unicodeScalars.contains("\u{00B0}"))
         // Uppercasing is applied by `PixelLabel` and must not disturb the suffix.
         #expect(reading.displayText.uppercased() == reading.displayText)
+    }
+
+    @Test("The bundled face really carries every glyph the reading is drawn from")
+    @MainActor
+    func bundledFaceCarriesTheDisplayGlyphs() throws {
+        // The check that matters, and the one a code-point comparison does not
+        // make: ask Core Text for the glyphs and require real ones. Glyph 0 is
+        // `.notdef` — the empty box a missing character draws as — so a
+        // non-zero glyph for each character is what says the face can set the
+        // line without falling back to another font.
+        PixelFont.register()
+        let font = try #require(CTFontCreateWithName("Silkscreen-Regular" as CFString, 16, nil) as CTFont?)
+        #expect(CTFontCopyPostScriptName(font) as String == "Silkscreen-Regular",
+                "the bundled face is not registered, so this would be measuring a system font")
+
+        let reading = try #require(TemperatureReading(celsius: -21))
+        // Uppercased, because that is what `PixelLabel` hands the font.
+        var utf16 = Array(reading.displayText.uppercased().utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+
+        #expect(CTFontGetGlyphsForCharacters(font, &utf16, &glyphs, utf16.count),
+                "the face does not carry every character of \(reading.displayText)")
+        for (index, glyph) in glyphs.enumerated() {
+            #expect(glyph != 0, "character \(index) of \(reading.displayText) has no glyph")
+        }
+
+        // And the degree sign specifically, since it is the one character in the
+        // line that a pixel face might plausibly omit.
+        var degree: [UniChar] = Array("\u{00B0}".utf16)
+        var degreeGlyph = [CGGlyph](repeating: 0, count: degree.count)
+        #expect(CTFontGetGlyphsForCharacters(font, &degree, &degreeGlyph, degree.count))
+        #expect(degreeGlyph[0] != 0)
+
+        // It is drawn, not blank: a glyph with an empty bounding box would pass
+        // every check above and still show nothing.
+        var bounds = CGRect.zero
+        CTFontGetBoundingRectsForGlyphs(font, .horizontal, &degreeGlyph, &bounds, 1)
+        #expect(bounds.width > 0)
+        #expect(bounds.height > 0)
     }
 
     @Test("A non-finite value has no display form and is refused")
