@@ -2,14 +2,19 @@ import SwiftUI
 
 /// The GITHUB screen: today's commit count above a 17-week contribution heatmap.
 ///
-/// Laid out from the `03 GITHUB` frame of `design/Pulse.dc.html`.
+/// Laid out from the `03 GITHUB` frame of `design/Pulse.dc.html`, with three
+/// deviations the repository owner asked for and `CLAUDE.md` §2 records: the
+/// reference's `LAST COMMIT AT:` label is dropped and its time set bare above the
+/// count, the invented pull request line is gone, and the reference's fixed `+96` and
+/// `+110` vertical offsets — authored for its own 360 × 780 frame — are replaced by
+/// gaps that flex, so a taller frame shares its extra height between the blocks
+/// instead of dropping all of it into the spacer above the last line.
 ///
 /// Two public sources feed it, and they are not interchangeable. The heatmap and the
 /// headline count come from the scraped contributions page, which has per-day totals
-/// and nothing finer. The reference's `LAST COMMIT AT` line, today's pull request
-/// activity and the freshness line come from the public events API, which has
-/// timestamps but sees public activity only. The two may legitimately disagree; the
-/// screen labels the event-sourced lines as public rather than reconciling them.
+/// and nothing finer. The time above the count and the freshness line come from the
+/// public events API, which has timestamps but sees public activity only. The two may
+/// legitimately disagree, and the screen does not reconcile them.
 public struct GitHubScreen: View {
 
     @Environment(\.activeScreen) private var activeScreen
@@ -76,33 +81,69 @@ public struct GitHubScreen: View {
             VStack(spacing: 0) {
                 header(username: username)
 
-                commitCount
-                    .padding(.top, metrics(96))
+                flexibleGap(minimum: 32)
+
+                commitBlock
+
+                // A little more space is reserved below the count than above it, so the
+                // block reads as optically centred between the header and the heatmap
+                // rather than sitting fractionally low under its own descender space.
+                flexibleGap(minimum: 48)
 
                 ContributionHeatmapGrid(contributions: model.contributions)
-                    .padding(.top, metrics(110))
+                    // The grid is the one block whose height is a consequence of its
+                    // width: its cells are square by aspect ratio, so a stack that
+                    // hands it less height than its width asks for returns a narrower
+                    // grid with dead margins either side, not a shorter one. Laying it
+                    // out first means it is offered the space the flexing gaps have not
+                    // yet claimed, answers with the height its own width implies, and
+                    // hands the rest straight back to them.
+                    .layoutPriority(1)
 
                 axis
                     .padding(.top, metrics(16))
 
-                footer
+                // The reference's own 46 unit gap below the axis, allowed to grow a
+                // little but not without limit: the surplus of a tall screen belongs to
+                // the two gaps above, and the footer belongs at the foot.
+                flexibleGap(minimum: 46, maximum: 96)
 
-                Spacer(minLength: metrics(20))
+                footer
 
                 changeUsernameAction
             }
         }
     }
 
+    /// Vertical space that grows with the screen, stated in design-reference units.
+    ///
+    /// The reference pins the count at `+96` below the header and the heatmap at `+110`
+    /// below the count. Those are fixed offsets in a 360 × 780 frame, and a taller
+    /// frame has to put the difference somewhere: transcribed literally it all collects
+    /// in the trailing spacer, which strands `LAST CHECK` 117 points above
+    /// `CHANGE USERNAME` at 393 × 852 rather than sharing the height out. Flexing the
+    /// gaps instead keeps every block's internal spacing exactly as drawn while the
+    /// space between blocks absorbs whatever height the device actually has.
+    ///
+    /// - Parameters:
+    ///   - minimum: Space the gap never goes below — the smallest supported screen is
+    ///     the case that has to survive.
+    ///   - maximum: Ceiling on the gap, or `nil` to let it take its share of whatever
+    ///     is left.
+    private func flexibleGap(minimum: CGFloat, maximum: CGFloat? = nil) -> some View {
+        Spacer(minLength: metrics(minimum))
+            .frame(maxHeight: maximum.map { metrics($0) } ?? .infinity)
+    }
+
     /// The block of small labels below the heatmap axis.
     ///
-    /// The reference has a single line here, `LAST COMMIT AT`, at a 46 unit gap. Pulse
-    /// can have up to four: the status line the screen already used this slot for, the
-    /// reference's own line, the invented pull request line, and the freshness line.
-    /// They stack at the reference's own 6 unit meta-line gap — the value the uptime
-    /// frame uses between `LAST CHECK` and `NEXT REFRESH` — so the block keeps the
-    /// rhythm of the design rather than inventing a second one, and the 46 unit gap
-    /// still separates it from the axis above.
+    /// The reference has a single line here, `LAST COMMIT AT`, at a 46 unit gap. That
+    /// line has moved above the count and the pull request line is gone, so in health
+    /// this block is one line, `LAST CHECK`, and the `CHANGE USERNAME` action below it.
+    /// A failing fetch adds the status line above it; the two stack at the reference's
+    /// own 6 unit meta-line gap — the value the uptime frame uses between `LAST CHECK`
+    /// and `NEXT REFRESH` — so the block keeps the rhythm of the design rather than
+    /// inventing a second one.
     @ViewBuilder
     private var footer: some View {
         if model.hasFooterContent {
@@ -110,30 +151,21 @@ public struct GitHubScreen: View {
                 if let status = model.statusLine {
                     statusLabel(status)
                 }
-                if let line = model.lastCommitLine {
-                    // The reference's own line, in the reference's own colour.
-                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.muted)
-                }
-                if let line = model.pullRequestLine {
-                    // Invented, so it sits a step below the reference's line and well
-                    // below the headline count the screen is built around.
-                    PixelLabel(line, size: 10, tracking: 2, color: PixelTheme.faint)
-                }
                 if let line = model.lastCheckLine {
                     // The uptime screen's wording, one size below its size. This line
                     // and the header both carry an eight-character HH:MM:SS in the same
                     // faint grey, and for the first minutes after every refresh they
                     // read the identical value, so they are separated on every axis
-                    // that is left: this one is smaller, labelled, at the opposite
-                    // corner, and set off from the two data lines above it by a doubled
-                    // gap. Nine is also the reference's own smallest size, which is
+                    // that is left: this one is smaller, labelled, and at the opposite
+                    // corner. Nine is also the reference's own smallest size, which is
                     // what a line about the data rather than in it should be.
                     PixelLabel(line, size: 9, tracking: 2, color: PixelTheme.faint)
-                        .padding(.top, metrics(6))
+                        // Set off from a status line above by a doubled gap; nothing to
+                        // set off from when the screen is healthy.
+                        .padding(.top, model.statusLine == nil ? 0 : metrics(6))
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, metrics(46))
         }
     }
 
@@ -148,9 +180,11 @@ public struct GitHubScreen: View {
 
             Spacer(minLength: metrics(8))
 
-            // The current time, and the only unlabelled readout on the screen. The
-            // three at the foot all name what they report, so nothing else here can be
-            // mistaken for now.
+            // The current time. It is not the only unlabelled readout any more — the
+            // time of today's last push sits bare above the count — so it is kept
+            // deliberately small, faint, right-aligned and ticking by the second,
+            // which is what separates a clock from a timestamp here. See
+            // `commitBlock`.
             PixelLabel(
                 GitHubHeaderRow.timeReadout(for: ticker.now),
                 size: 10,
@@ -162,8 +196,39 @@ public struct GitHubScreen: View {
         .frame(maxWidth: .infinity)
     }
 
-    private var commitCount: some View {
+    /// The time of today's last public push, the count, and its label, as one block.
+    ///
+    /// The reference labels the time `LAST COMMIT AT:` at the foot of the frame. The
+    /// owner asked for it bare and directly above the number instead, which puts a
+    /// second unlabelled time on a screen whose header already carries one. They are
+    /// told apart by everything except their wording:
+    ///
+    /// - **Size.** 16 against the header's 10 — and 16 is the reference's own size for
+    ///   the clock's date and temperature lines, not an invented one. The tracking is
+    ///   4, not the 5 those clock lines carry: 16 at 5 in `#525252` would be that
+    ///   line's style character for character, and quoting the one screen in the app
+    ///   that really is a clock is the last thing this time should do. 4 is the
+    ///   tracking of `COMMITS TODAY` directly below it, which is the rhythm it belongs
+    ///   to.
+    /// - **Colour.** `#525252`, the reference's colour for `LAST COMMIT AT` and for
+    ///   `COMMITS TODAY` directly below, against the header's fainter `#3D3D3D`. The
+    ///   time and the label below the count are therefore the same grey, bracketing the
+    ///   white number as one block.
+    /// - **Position.** Centred on the count, at the count's own 14 unit gap, in the
+    ///   middle of the screen; the header readout is right-aligned in a row at the top.
+    /// - **Precision.** `HH:mm` against the header's `HH:mm:ss`, so the header ticks
+    ///   every second and this does not.
+    ///
+    /// It is still, honestly, a bare time — a glance that reads only the digits can
+    /// take it for a clock. What the treatment buys is that it never reads as a clock
+    /// *in place*: it is bound to the number it sits on.
+    private var commitBlock: some View {
         VStack(spacing: 0) {
+            if let time = model.lastCommitTime {
+                PixelLabel(time, size: 16, tracking: 4, color: PixelTheme.muted)
+                    .padding(.bottom, metrics(14))
+                    .accessibilityLabel("Last commit at \(time)")
+            }
             PixelLabel(
                 // A placeholder rather than a zero when today has no exact count: the
                 // screen must not state a figure it cannot stand behind.
@@ -171,8 +236,8 @@ public struct GitHubScreen: View {
                 size: 76,
                 tracking: 1,
                 color: PixelTheme.primary,
-                // `line-height: 1` in the reference: both the 96 units above the
-                // count and the 14 below it are measured from a one-em box.
+                // `line-height: 1` in the reference: the 14 unit gaps either side of
+                // the count are measured from a one-em box.
                 lineBox: .tight
             )
             PixelLabel("COMMITS TODAY", size: 11, tracking: 4, color: PixelTheme.muted)
@@ -428,9 +493,8 @@ final class GitHubActivityModel {
     /// A short line describing a problem, or `nil` when the screen is healthy.
     ///
     /// It heads the block of small labels at the foot of the screen. Only the
-    /// contributions fetch is reported here: a failed events fetch costs three
-    /// subordinate lines, not the screen's subject, and those lines simply do not
-    /// appear.
+    /// contributions fetch is reported here: a failed events fetch costs the time above
+    /// the count, not the screen's subject, and that time simply does not appear.
     ///
     /// The line only reports. The way back to the username prompt is the screen's own
     /// `CHANGE USERNAME` action, so there is a single visible route rather than one
@@ -457,8 +521,14 @@ final class GitHubActivityModel {
 
     // MARK: - Event-sourced lines
 
-    /// The reference's `LAST COMMIT AT` line, or `nil` when there has been no public
-    /// push today.
+    /// The time of today's last public push, `HH:mm`, or `nil` when there has been
+    /// none.
+    ///
+    /// The reference draws this as `LAST COMMIT AT: 13:58` at the foot of the frame.
+    /// The owner asked for the label dropped and the time moved directly above the
+    /// count, so the value is the time alone; what it means is carried by its position
+    /// rather than by words. See `GitHubScreen.commitBlock` for how it is kept apart
+    /// from the header's clock.
     ///
     /// Three honesty notes are baked into this. The line is scoped to today, like every
     /// other figure on the screen: it carries no date, and it sits under a headline
@@ -471,40 +541,9 @@ final class GitHubActivityModel {
     /// Absent is the deliberate choice over a placeholder, and over a stale time: a
     /// dash where a time belongs invites being read as a time, and a wrong time reads
     /// more confidently still.
-    var lastCommitLine: String? {
+    var lastCommitTime: String? {
         guard let pushedAt = activity?.lastPushAt else { return nil }
-        return "LAST COMMIT AT: \(Self.minuteFormatter.string(from: pushedAt))"
-    }
-
-    /// Today's public pull request activity, or `nil` when there was none.
-    ///
-    /// Not in the design reference — this line is an addition. It is written as
-    /// `PUBLIC` first so it cannot be read as an account-wide total: the feed behind it
-    /// never sees private repositories, while the heatmap above it can, and the two are
-    /// allowed to disagree.
-    ///
-    /// A day with no pull requests shows nothing rather than a zero. A zero would be a
-    /// claim — "you merged nothing today" — that this source cannot support, since the
-    /// work may simply have been private.
-    ///
-    /// The combined wording is the longest line the screen draws. Its rendered width is
-    /// pinned by a test that measures the label, including at double-digit counts,
-    /// rather than by a character count against a worst-case glyph advance: the counts
-    /// are digits and the words are known, so the real measurement is both tighter and
-    /// the one that matters.
-    var pullRequestLine: String? {
-        guard let activity, activity.hasPullRequestActivityToday else { return nil }
-        let opened = activity.pullRequestsOpenedToday
-        let merged = activity.pullRequestsMergedToday
-
-        switch (opened, merged) {
-        case (0, let merged):
-            return "PUBLIC PR MERGED: \(merged)"
-        case (let opened, 0):
-            return "PUBLIC PR OPENED: \(opened)"
-        default:
-            return "PUBLIC PR: \(opened) OPENED \(merged) MERGED"
-        }
+        return Self.minuteFormatter.string(from: pushedAt)
     }
 
     /// When the data on screen was last fetched, in the uptime screen's own wording.
@@ -525,8 +564,7 @@ final class GitHubActivityModel {
 
     /// Whether any line belongs in the block at the foot of the screen.
     var hasFooterContent: Bool {
-        statusLine != nil || lastCommitLine != nil || pullRequestLine != nil
-            || lastCheckLine != nil
+        statusLine != nil || lastCheckLine != nil
     }
 
     // MARK: - Fetching
