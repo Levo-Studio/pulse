@@ -45,14 +45,45 @@ final class PagingUITests: XCTestCase {
         return app
     }
 
+    // MARK: - Paging
+
+    /// Drags across the top eighth of the screen rather than through its middle.
+    ///
+    /// `swipeLeft()` starts in the centre, which on a credential prompt is the field
+    /// or the keyboard above it — both of which swallow the drag, so the pager never
+    /// sees it. Every screen's top band is inert, so a drag there reaches the pager
+    /// whatever state the screen underneath is in.
+    private func page(_ app: XCUIApplication, toward direction: CGFloat) {
+        // Kept clear of both screen edges, where the system's own edge-pan gestures
+        // claim the touch before the pager sees it.
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 - direction * 0.3, dy: 0.12))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + direction * 0.3, dy: 0.12))
+        // A flick, not a slow drag: `TabView` pages on velocity, and a drag issued
+        // without one is absorbed as a scroll that ends where it started.
+        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+    }
+
+    /// One page to the right in the swipe order.
+    private func pageForward(_ app: XCUIApplication) { page(app, toward: -1) }
+
+    /// One page to the left in the swipe order.
+    private func pageBack(_ app: XCUIApplication) { page(app, toward: 1) }
+
     // MARK: - Screen anchors
 
     /// The clock: a `HH:mm` or `HH:mm:ss` readout, whichever the preference says.
+    ///
+    /// Queried as a button, which is what the readout is: it carries the double-tap
+    /// action that reveals seconds, and an element with an action is not a static text.
     private func clockIsShowing(_ app: XCUIApplication) -> Bool {
-        let times = app.staticTexts.matching(
-            NSPredicate(format: "label MATCHES %@", "^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$")
-        )
-        return times.firstMatch.waitForExistence(timeout: Self.arrival)
+        clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$")
+            .waitForExistence(timeout: Self.arrival)
+    }
+
+    private func clockReadout(in app: XCUIApplication, pattern: String) -> XCUIElement {
+        app.buttons
+            .matching(NSPredicate(format: "label MATCHES %@", pattern))
+            .firstMatch
     }
 
     /// The stopwatch, by the identifier its readout carries.
@@ -90,32 +121,32 @@ final class PagingUITests: XCTestCase {
 
         XCTAssertTrue(clockIsShowing(app), "The app must open on the clock")
 
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(stopwatchIsShowing(app), "The stopwatch must be one page right of the clock")
 
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(gitHubIsShowing(app), "GitHub must be one page right of the stopwatch")
 
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(uptimeIsShowing(app), "Uptime must be one page right of GitHub")
 
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(settingsIsShowing(app), "Settings must be the fifth and last page")
 
         // A sixth swipe has nowhere to go: settings is the end of the order.
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(settingsIsShowing(app), "Settings must stay put at the end of the order")
 
-        app.swipeRight()
+        pageBack(app)
         XCTAssertTrue(uptimeIsShowing(app), "Uptime must be one page left of settings")
 
-        app.swipeRight()
+        pageBack(app)
         XCTAssertTrue(gitHubIsShowing(app), "GitHub must be one page left of uptime")
 
-        app.swipeRight()
+        pageBack(app)
         XCTAssertTrue(stopwatchIsShowing(app), "The stopwatch must be one page left of GitHub")
 
-        app.swipeRight()
+        pageBack(app)
         XCTAssertTrue(clockIsShowing(app), "The clock must be one page left of the stopwatch")
     }
 
@@ -124,16 +155,16 @@ final class PagingUITests: XCTestCase {
     func testPagingThroughSettingsChangesNothing() {
         let app = launch()
 
-        for _ in 0..<4 { app.swipeLeft() }
+        for _ in 0..<4 { pageForward(app) }
         XCTAssertTrue(settingsIsShowing(app))
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
         let before = seconds.value as? String
 
-        app.swipeRight()
+        pageBack(app)
         XCTAssertTrue(uptimeIsShowing(app))
-        app.swipeLeft()
+        pageForward(app)
         XCTAssertTrue(settingsIsShowing(app))
 
         XCTAssertEqual(seconds.value as? String, before, "Swiping past a row must not toggle it")
@@ -145,32 +176,28 @@ final class PagingUITests: XCTestCase {
         let app = launch()
 
         XCTAssertTrue(clockIsShowing(app))
-        let withoutSeconds = app.staticTexts.matching(
-            NSPredicate(format: "label MATCHES %@", "^[0-9]{2}:[0-9]{2}$")
-        )
-        let withSeconds = app.staticTexts.matching(
-            NSPredicate(format: "label MATCHES %@", "^[0-9]{2}:[0-9]{2}:[0-9]{2}$")
-        )
-        let startedWithSeconds = withSeconds.firstMatch.exists
+        let withoutSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}$")
+        let withSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}:[0-9]{2}$")
+        let startedWithSeconds = withSeconds.exists
 
-        for _ in 0..<4 { app.swipeLeft() }
+        for _ in 0..<4 { pageForward(app) }
         XCTAssertTrue(settingsIsShowing(app))
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
         seconds.tap()
 
-        for _ in 0..<4 { app.swipeRight() }
+        for _ in 0..<4 { pageBack(app) }
 
         let expected = startedWithSeconds ? withoutSeconds : withSeconds
         XCTAssertTrue(
-            expected.firstMatch.waitForExistence(timeout: Self.arrival),
+            expected.waitForExistence(timeout: Self.arrival),
             "The clock must follow the preference toggled in settings"
         )
 
         // Left as it was found, so the run does not decide the next one's starting
         // state.
-        for _ in 0..<4 { app.swipeLeft() }
+        for _ in 0..<4 { pageForward(app) }
         XCTAssertTrue(settingsIsShowing(app))
         seconds.tap()
     }
