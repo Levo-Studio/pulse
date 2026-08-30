@@ -221,10 +221,12 @@ public struct GitHubScreen: View {
     /// backgrounded with the view still mounted, and the username prompt replaces the
     /// header entirely while it is up.
     private var isHeaderTimeVisible: Bool {
-        isActive
-            && scenePhase == .active
-            && model.username != nil
-            && !isEditingUsername
+        GitHubHeaderRow.shouldTick(
+            activeScreen: activeScreen,
+            scenePhase: scenePhase,
+            hasUsername: model.username != nil,
+            isEditingUsername: isEditingUsername
+        )
     }
 
     private func synchroniseTicker() {
@@ -269,6 +271,13 @@ enum GitHubHeaderRow {
     /// The gaps the row spends: the stack's own spacing and the spacer's minimum.
     static let gapWidth: CGFloat = 8 + 8
 
+    /// How many characters fit on a line that has the content width to itself, which
+    /// is what every label in the block at the foot of the screen has.
+    ///
+    /// The wording of those lines is chosen against this, so none of them can overrun
+    /// the frame on the narrowest device whatever counts they carry.
+    static var footerCharacterBudget: Int { Int(contentWidth / characterWidth) }
+
     /// Width left for the username once the time and the gaps are paid for.
     static let nameWidthBudget: CGFloat = contentWidth - timeWidth - gapWidth
 
@@ -289,6 +298,19 @@ enum GitHubHeaderRow {
         guard username.count > characterBudget else { return username }
         let kept = characterBudget - truncationMarker.count
         return username.prefix(max(kept, 1)) + truncationMarker
+    }
+
+    /// Whether the one-second ticker behind the header readout should be running.
+    ///
+    /// Stated as a function of the four conditions rather than inline in the view, so
+    /// the gate can be exercised without mounting a view hierarchy.
+    static func shouldTick(
+        activeScreen: PulseScreen,
+        scenePhase: ScenePhase,
+        hasUsername: Bool,
+        isEditingUsername: Bool
+    ) -> Bool {
+        activeScreen == .gitHub && scenePhase == .active && hasUsername && !isEditingUsername
     }
 
     /// The header readout for `date`, `HH:mm:ss`.
