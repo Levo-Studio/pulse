@@ -16,11 +16,16 @@ import XCTest
 /// are addressed by exact label: a predicate scan filters the whole accessibility tree
 /// on every read, which on these screens is slow enough to time a wait out by itself.
 ///
-/// And a screen counts as showing only when its anchor is **on screen**, not merely
-/// present. `TabView` keeps the neighbouring pages in the tree, off to either side, so
-/// an existence check alone reports the next screen as arrived while the pager is
-/// still on the previous one — and would pass just as happily if a swipe skipped a
-/// page entirely.
+/// A screen counts as showing when its anchor **exists**, which is a sound signal
+/// here rather than a lazy one: `TabView` builds the page it scrolls to and tears down
+/// the one it leaves, so once a transition has settled only the current screen's
+/// elements are in the tree. Measured on this pager, with uptime displayed,
+/// `app.staticTexts["SETTINGS"]` did not exist after ten seconds of polling.
+///
+/// What that does **not** cover is a transition still in flight, where both pages are
+/// briefly in the tree. That is what the settle before each read is for, and it is why
+/// the drag cannot be allowed to overshoot: existence alone would report a skipped
+/// page as an arrival.
 ///
 /// Like the stopwatch suite, this target keeps its own shared scheme. Run it
 /// deliberately:
@@ -69,9 +74,13 @@ final class PagingUITests: XCTestCase {
     /// to make a run meaningless, and a skipped page is a failure this suite cannot
     /// tell from a missing screen. A slow drag never overshoots; it occasionally does
     /// not take at all, which `page(_:toward:until:)` retries.
-    private func flick(_ app: XCUIApplication, toward direction: CGFloat) {
-        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 - direction * 0.3, dy: 0.12))
-        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + direction * 0.3, dy: 0.12))
+    private func flick(_ app: XCUIApplication, toward direction: CGFloat, from origin: XCUIElement? = nil) {
+        // The band the drag crosses: the inert strip below the top of the screen by
+        // default, or the vertical middle of a given element when the point of the case
+        // is that a touch landing on that element still only pages.
+        let band = origin.map { $0.frame.midY / app.frame.height } ?? 0.12
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 - direction * 0.3, dy: band))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + direction * 0.3, dy: band))
         start.press(
             forDuration: 0.01,
             thenDragTo: end,
@@ -91,6 +100,7 @@ final class PagingUITests: XCTestCase {
     private func page(
         _ app: XCUIApplication,
         toward direction: CGFloat,
+        from origin: XCUIElement? = nil,
         until arrived: () -> Bool
     ) -> Bool {
         for _ in 0..<3 {
@@ -98,7 +108,7 @@ final class PagingUITests: XCTestCase {
             // issued into a running transition is dropped, and the retry then reads as
             // a screen that is not there.
             Thread.sleep(forTimeInterval: 0.6)
-            flick(app, toward: direction)
+            flick(app, toward: direction, from: origin)
             // The page transition is left to finish before the tree is read at all: a
             // query issued into a running transition returns a snapshot of a page that
             // is still moving, which is neither the screen being left nor the one
@@ -110,13 +120,21 @@ final class PagingUITests: XCTestCase {
     }
 
     /// One page to the right in the swipe order.
-    private func pageForward(_ app: XCUIApplication, until arrived: () -> Bool) -> Bool {
-        page(app, toward: -1, until: arrived)
+    private func pageForward(
+        _ app: XCUIApplication,
+        from origin: XCUIElement? = nil,
+        until arrived: () -> Bool
+    ) -> Bool {
+        page(app, toward: -1, from: origin, until: arrived)
     }
 
     /// One page to the left in the swipe order.
-    private func pageBack(_ app: XCUIApplication, until arrived: () -> Bool) -> Bool {
-        page(app, toward: 1, until: arrived)
+    private func pageBack(
+        _ app: XCUIApplication,
+        from origin: XCUIElement? = nil,
+        until arrived: () -> Bool
+    ) -> Bool {
+        page(app, toward: 1, from: origin, until: arrived)
     }
 
     /// Polls `condition` until it holds or the deadline passes.
@@ -234,49 +252,127 @@ final class PagingUITests: XCTestCase {
 
     /// Swiping across settings must not change anything: the rows are buttons, and a
     /// button does not fire while a drag is in flight.
-    func testPagingThroughSettingsChangesNothing() {
+    ///
+    /// The drag deliberately **starts on a row**, not in the inert band at the top. A
+    /// swipe over the header proves only that the header is safe; the risk this case
+    /// exists for is a finger that lands on `SECONDS` on its way past, so that is where
+    /// the touch goes down. A row rebuilt as a tap gesture rather than a button would
+    /// fail here and pass a header swipe.
+    func testPagingThroughSettingsChangesNothing() throws {
         let app = launch()
         pageToSettings(app)
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
-        let before = seconds.value as? String
 
-        XCTAssertTrue(pageBack(app) { uptimeIsShowing(app) })
+        // Unwrapped rather than compared as an optional: two `nil`s are equal, so an
+        // accessibility value that stopped being published would make the comparison
+        // below pass without measuring anything.
+        let before = try XCTUnwrap(seconds.value as? String, "The row must publish its state")
+
+        XCTAssertTrue(pageBack(app, from: seconds) { uptimeIsShowing(app) })
         XCTAssertTrue(pageForward(app) { settingsIsShowing(app) })
 
-        XCTAssertEqual(seconds.value as? String, before, "Swiping past a row must not toggle it")
+        XCTAssertEqual(
+            try XCTUnwrap(seconds.value as? String),
+            before,
+            "A swipe that starts on a row must not toggle it"
+        )
     }
 
     /// The settings toggle and the clock's own double tap write the same preference
     /// object, so a change made here is on the clock without a relaunch.
+    ///
+    /// The starting state is **imposed, not read**. Launching with
+    /// `-clock.showsSeconds NO` puts the value in `UserDefaults`' argument domain,
+    /// which outranks anything written to the device, so the run starts on the minute
+    /// readout whatever the last run left behind and whatever the person using this
+    /// simulator prefers. Nothing has to be restored afterwards, which matters because
+    /// `continueAfterFailure` is false: a restoring tap at the end of a case is exactly
+    /// the cleanup an earlier failure skips.
     func testTogglingSecondsInSettingsShowsOnTheClock() {
-        let app = launch()
+        let app = XCUIApplication()
+        app.launchArguments += ["-clock.showsSeconds", "NO"]
+        app.launch()
+        self.app = app
 
-        XCTAssertTrue(waitUntil(Self.arrival) { clockIsShowing(app) })
         let withoutSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}$")
         let withSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}:[0-9]{2}$")
-        let startedWithSeconds = withSeconds.exists
+
+        XCTAssertTrue(
+            waitUntil(Self.arrival) { withoutSeconds.exists },
+            "The launch argument must decide the starting state"
+        )
+        XCTAssertFalse(withSeconds.exists)
 
         pageToSettings(app)
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
+        XCTAssertEqual(seconds.value as? String, "OFF", "The row must agree with the clock")
         seconds.tap()
+        XCTAssertEqual(seconds.value as? String, "ON")
         Thread.sleep(forTimeInterval: 1)
 
         pageToClock(app)
 
-        let expected = startedWithSeconds ? withoutSeconds : withSeconds
         XCTAssertTrue(
-            waitUntil(Self.arrival) { isOnScreen(expected, in: app) },
+            waitUntil(Self.arrival) { withSeconds.exists },
             "The clock must follow the preference toggled in settings"
         )
 
-        // Left as it was found, so this run does not decide the next one's starting
-        // state.
+        // Back off again, and asserted on the way rather than tapped and hoped for.
+        // Turning it off is worth a case of its own — a toggle that only ever gets
+        // tested in one direction is half tested — and it happens to leave the device's
+        // stored preference as this run found it.
         pageToSettings(app)
+        XCTAssertEqual(seconds.value as? String, "ON")
         seconds.tap()
+        XCTAssertEqual(seconds.value as? String, "OFF")
+        Thread.sleep(forTimeInterval: 1)
+
+        pageToClock(app)
+
+        XCTAssertTrue(
+            waitUntil(Self.arrival) { withoutSeconds.exists },
+            "The clock must follow the preference in both directions"
+        )
+    }
+
+    /// Arriving on settings from a credential prompt must leave the whole screen
+    /// usable.
+    ///
+    /// This is the default path for a new user: no key is stored, the uptime screen
+    /// prompts for one and takes focus, and the next swipe lands on settings. The
+    /// keyboard that prompt raised belongs to the window, so it used to stay up —
+    /// undrawn, but still claiming its inset — and take the bottom 378 points of a
+    /// 874 point display with it. The last row and the hint under it were simply not
+    /// there, on a screen with no scroll indicator to suggest otherwise.
+    ///
+    /// The case therefore checks two things that were both false before: no keyboard
+    /// is up, and the **last** row is inside the frame without scrolling.
+    func testSettingsIsWholeAfterACredentialPrompt() {
+        let app = launch()
+        pageToSettings(app)
+
+        XCTAssertTrue(
+            waitUntil(Self.arrival) { app.keyboards.count == 0 },
+            "A keyboard raised by a prompt must not survive the swipe to settings"
+        )
+
+        let lastRow = app.buttons["WEATHER CONDITION"]
+        XCTAssertTrue(lastRow.waitForExistence(timeout: Self.arrival))
+        XCTAssertTrue(
+            app.frame.contains(lastRow.frame),
+            """
+            The last settings row must be drawn in full without scrolling. \
+            Row: \(lastRow.frame), screen: \(app.frame)
+            """
+        )
+
+        let hint = app.staticTexts["TAP A ROW TO CHANGE IT"]
+        XCTAssertTrue(hint.exists)
+        XCTAssertTrue(app.frame.contains(hint.frame), "The hint under the rows must be drawn too")
     }
 
     /// Pages from the clock to settings, one screen at a time, so a swipe that does not
