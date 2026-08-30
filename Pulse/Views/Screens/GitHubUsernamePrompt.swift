@@ -2,114 +2,111 @@ import SwiftUI
 
 /// Asks the user which GitHub account the contribution screen should display.
 ///
-/// Shown on first use, and again whenever the user corrects a username that returns
-/// no data. The design reference contains no onboarding frame, so this view is built
-/// from the same palette, typeface and letter-spacing as the rest of the screen
-/// rather than from a reference of its own.
+/// Shown on first use, and again whenever the user chooses to change the account.
+/// The username is not a secret, so the field is never masked — but it is still
+/// case-preserving text the user has to be able to check, so the entered value is
+/// drawn in a monospaced system face by `PixelCredentialField` while the labels
+/// around it stay in the pixel face.
+///
+/// The design reference contains no onboarding frame, so the layout comes from
+/// `CredentialPromptScaffold`, which is shared with the uptime key prompt.
 public struct GitHubUsernamePrompt: View {
 
     private let canCancel: Bool
-    private let onSubmit: (String) -> Void
+    private let onSubmit: (String) -> Bool
     private let onCancel: () -> Void
 
-    @State private var text: String
-    @State private var isRejected = false
+    @State private var text = ""
+    @State private var notice: Notice?
     @FocusState private var isFocused: Bool
 
-    @Environment(\.pixelMetrics) private var metrics
+    /// What went wrong with the last attempt, if anything.
+    private enum Notice: Equatable {
+
+        /// The typed value is not a syntactically valid GitHub username.
+        case invalid
+
+        /// The Keychain refused the write.
+        case storageFailed
+    }
 
     /// Creates the prompt.
     ///
+    /// The field always opens empty. A stored value is never pre-filled: the same
+    /// prompt is used for a credential, and the stored item is replaced only when a
+    /// new value is saved.
+    ///
     /// - Parameters:
-    ///   - initialUsername: Username to pre-fill, empty on first use.
     ///   - canCancel: Whether the user may dismiss without entering a name. False on
     ///     first use, when the screen has nothing to fall back to.
-    ///   - onSubmit: Called with a syntactically valid username.
+    ///   - onSubmit: Called with a syntactically valid username. Returns `true` once
+    ///     the value has been stored, which closes the prompt.
     ///   - onCancel: Called when the user dismisses the prompt.
     public init(
-        initialUsername: String = "",
         canCancel: Bool,
-        onSubmit: @escaping (String) -> Void,
+        onSubmit: @escaping (String) -> Bool,
         onCancel: @escaping () -> Void = {}
     ) {
         self.canCancel = canCancel
         self.onSubmit = onSubmit
         self.onCancel = onCancel
-        self._text = State(initialValue: initialUsername)
     }
 
     public var body: some View {
-        PixelScreenBackdrop(placement: .centred, spacing: 22) {
-            PixelLabel("GITHUB USERNAME", size: 11, tracking: 4, color: PixelTheme.muted)
-
-            VStack(spacing: metrics(10)) {
-                TextField(
-                    "",
-                    text: $text,
-                    prompt: Text("USERNAME").foregroundStyle(PixelTheme.faint)
-                )
-                .font(PixelFont.regular(metrics(18)))
-                .tracking(metrics(2))
-                .foregroundStyle(PixelTheme.primary)
-                .tint(PixelTheme.muted)
-                .multilineTextAlignment(.center)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.asciiCapable)
-                .submitLabel(.done)
-                .focused($isFocused)
-                .onChange(of: text) { _, _ in isRejected = false }
-                .onSubmit(submit)
-
-                Rectangle()
-                    .fill(PixelTheme.separator)
-                    .frame(height: max(1, metrics(1)))
-            }
-            .frame(maxWidth: .infinity)
-
-            PixelLabel(
-                isRejected ? "NOT A VALID USERNAME" : " ",
-                size: 9,
-                tracking: 2,
-                color: PixelTheme.muted
+        CredentialPromptScaffold(
+            eyebrow: "GITHUB",
+            title: "USERNAME",
+            explanation: [
+                "THE ACCOUNT WHOSE",
+                "CONTRIBUTION GRAPH IS SHOWN.",
+                "PUBLIC DATA ONLY - NO TOKEN",
+                "IS REQUESTED OR STORED."
+            ],
+            notice: scaffoldNotice,
+            submitTitle: "CONTINUE",
+            isSubmitEnabled: !trimmed.isEmpty,
+            submit: submit,
+            cancel: canCancel ? onCancel : nil
+        ) {
+            PixelCredentialField(
+                title: "HANDLE",
+                placeholder: "YOUR GITHUB NAME",
+                privacy: .plain,
+                text: $text,
+                isFocused: $isFocused,
+                onSubmit: submit
             )
-
-            HStack(spacing: metrics(28)) {
-                if canCancel {
-                    action("CANCEL", color: PixelTheme.faint, perform: onCancel)
-                }
-                action("CONTINUE", color: PixelTheme.bright, perform: submit)
-            }
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isFocused = false }
         .onAppear { isFocused = true }
+        .onChange(of: text) { _, _ in notice = nil }
     }
 
-    private func action(
-        _ title: String,
-        color: Color,
-        perform: @escaping () -> Void
-    ) -> some View {
-        Button(action: perform) {
-            PixelLabel(title, size: 10, tracking: 4, color: color)
-                .frame(minWidth: 88, minHeight: 44)
-                .contentShape(Rectangle())
+    private var trimmed: String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var scaffoldNotice: CredentialPromptScaffold<PixelCredentialField>.Notice? {
+        switch notice {
+        case .none: nil
+        case .invalid: .init(text: "NOT A VALID USERNAME.", isFailure: true)
+        case .storageFailed: .init(text: "KEYCHAIN WRITE FAILED. RETRY.", isFailure: true)
         }
-        .buttonStyle(.plain)
     }
 
     private func submit() {
-        let candidate = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed
         guard GitHubContributionsClient.isValidUsername(candidate) else {
-            isRejected = true
+            notice = .invalid
+            return
+        }
+        guard onSubmit(candidate) else {
+            notice = .storageFailed
             return
         }
         isFocused = false
-        onSubmit(candidate)
     }
 }
 
 #Preview {
-    GitHubUsernamePrompt(canCancel: false, onSubmit: { _ in })
+    GitHubUsernamePrompt(canCancel: false, onSubmit: { _ in true })
 }

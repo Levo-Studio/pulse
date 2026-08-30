@@ -41,11 +41,11 @@ public struct GitHubScreen: View {
                 display(username: username)
             } else {
                 GitHubUsernamePrompt(
-                    initialUsername: model.username ?? "",
                     canCancel: model.username != nil,
                     onSubmit: { name in
-                        model.save(username: name)
+                        guard model.save(username: name) else { return false }
                         isEditingUsername = false
+                        return true
                     },
                     onCancel: { isEditingUsername = false }
                 )
@@ -86,6 +86,10 @@ public struct GitHubScreen: View {
                     .padding(.top, metrics(16))
 
                 footer
+
+                Spacer(minLength: metrics(20))
+
+                changeUsernameAction
             }
         }
     }
@@ -104,7 +108,7 @@ public struct GitHubScreen: View {
         if model.hasFooterContent {
             VStack(alignment: .leading, spacing: metrics(6)) {
                 if let status = model.statusLine {
-                    statusRow(status)
+                    statusLabel(status)
                 }
                 if let line = model.lastCommitLine {
                     // The reference's own line, in the reference's own colour.
@@ -135,19 +139,12 @@ public struct GitHubScreen: View {
 
     private func header(username: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: metrics(8)) {
-            Button {
-                isEditingUsername = true
-            } label: {
-                PixelLabel(
-                    GitHubHeaderRow.displayName(for: username),
-                    size: 10,
-                    tracking: 2,
-                    color: PixelTheme.bright
-                )
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("GitHub username \(username). Tap to change.")
+            PixelLabel(
+                GitHubHeaderRow.displayName(for: username),
+                size: 10,
+                tracking: 2,
+                color: PixelTheme.bright
+            )
 
             Spacer(minLength: metrics(8))
 
@@ -193,31 +190,29 @@ public struct GitHubScreen: View {
         .frame(maxWidth: .infinity)
     }
 
-    @ViewBuilder
-    private func statusRow(_ status: String) -> some View {
-        if model.lastFailure == nil {
-            // The only status the screen shows without a failure behind it is a
-            // missing count for today, which no rename can fix. It reads as plain
-            // text, because a tap that silently opened the username prompt would be
-            // offering a repair for a problem the user does not have — and nothing on
-            // the row suggests a tap would start one.
-            statusLabel(status)
-        } else {
-            // Every failure line ends in TAP TO CHANGE, so the row is the way back to
-            // the prompt.
-            Button {
-                isEditingUsername = true
-            } label: {
-                statusLabel(status)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
+    /// A status line reports; it never doubles as a control.
     private func statusLabel(_ status: String) -> some View {
         PixelLabel(status, size: 10, tracking: 2, color: PixelTheme.muted)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The single way back to the username prompt once a name is stored.
+    ///
+    /// The screen used to route both the header and the failing status line into the
+    /// prompt, which left the affordance hidden until something went wrong and
+    /// invisible when everything was fine. Both are plain labels now and this is the
+    /// only path, kept at the foot of the screen in the faintest colour so it does not
+    /// compete with the count and the heatmap.
+    private var changeUsernameAction: some View {
+        Button {
+            isEditingUsername = true
+        } label: {
+            PixelLabel("CHANGE USERNAME", size: 10, tracking: 3, color: PixelTheme.faint)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, metrics(16))
     }
 
     // MARK: - Polling
@@ -432,10 +427,14 @@ final class GitHubActivityModel {
 
     /// A short line describing a problem, or `nil` when the screen is healthy.
     ///
-    /// It heads the block of small labels at the foot of the screen and doubles as the
-    /// way back to the username prompt. Only the contributions fetch is reported here:
-    /// a failed events fetch costs three subordinate lines, not the screen's subject,
-    /// and those lines simply do not appear.
+    /// It heads the block of small labels at the foot of the screen. Only the
+    /// contributions fetch is reported here: a failed events fetch costs three
+    /// subordinate lines, not the screen's subject, and those lines simply do not
+    /// appear.
+    ///
+    /// The line only reports. The way back to the username prompt is the screen's own
+    /// `CHANGE USERNAME` action, so there is a single visible route rather than one
+    /// that appears only when something has already gone wrong.
     var statusLine: String? {
         switch lastFailure {
         case .none:
@@ -446,12 +445,12 @@ final class GitHubActivityModel {
             }
             return nil
         case .invalidUsername, .unknownUser:
-            return "NO SUCH USER - TAP TO CHANGE"
+            return "NO SUCH USER"
         case .unparsableMarkup:
-            return "NO DATA - TAP TO CHANGE"
+            return "NO DATA FOR THIS ACCOUNT"
         case .unreachable, .unexpectedStatus:
             return contributions.isEmpty
-                ? "OFFLINE - TAP TO CHANGE"
+                ? "OFFLINE"
                 : "OFFLINE - SHOWING LAST DATA"
         }
     }
@@ -533,10 +532,16 @@ final class GitHubActivityModel {
     // MARK: - Fetching
 
     /// Stores `name` in the Keychain and drops any data belonging to the old account.
-    func save(username name: String) {
+    ///
+    /// The stored item is overwritten only here, on a successful write. Opening or
+    /// cancelling the prompt never touches it.
+    ///
+    /// - Returns: `true` when the name reached the Keychain.
+    @discardableResult
+    func save(username name: String) -> Bool {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard GitHubContributionsClient.isValidUsername(trimmed) else { return }
-        guard store.set(trimmed, for: .gitHubUsername) else { return }
+        guard GitHubContributionsClient.isValidUsername(trimmed) else { return false }
+        guard store.set(trimmed, for: .gitHubUsername) else { return false }
 
         username = trimmed
         contributions = .empty
@@ -544,6 +549,7 @@ final class GitHubActivityModel {
         activity = nil
         eventsFailure = nil
         eventsBackoffUntil = nil
+        return true
     }
 
     /// Refreshes both sources for the stored username.
