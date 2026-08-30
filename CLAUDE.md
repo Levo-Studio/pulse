@@ -114,10 +114,17 @@ Carry these forward; do not silently resolve them.
   **not implemented**; the Clock screen ships as time plus date only.
 - The GitHub frame shows `LAST COMMIT AT: 13:58`. The contributions page exposes only
   per-day totals, so the line is sourced from the public events API instead (see §3),
-  from the newest push in the window. Two caveats stand: the feed timestamps the push,
-  not the authoring of the commit inside it, and it sees public activity only, so a push
-  to a private repository leaves the line showing an older public one or absent
-  altogether. It is omitted rather than placeheld when the window holds no push.
+  from the newest public push **of today**. Two caveats stand: the feed timestamps the
+  push, not the authoring of the commit inside it, and it sees public activity only, so
+  a day's work in a private repository is invisible to it. The line is scoped to today
+  because it carries no date and sits under a `COMMITS TODAY` headline, where a time
+  from earlier in the 90-day window would read as today's. With no public push today it
+  is omitted, never placeheld and never filled with an older one.
+- The GitHub header shows the current time as `HH:MM:SS`, where the reference frame
+  shows `14:32` and only the uptime frame uses seconds. This is a **deliberate
+  deviation, requested explicitly by the repository owner** — not an oversight and not a
+  transcription error. Do not "correct" it back to `HH:MM`. The one-second ticker behind
+  it runs only while the screen is visible and the app is foregrounded.
 - The frames are drawn with a `7 px #1B1D1E` rounded border. That is device-bezel chrome in
   the canvas mock, not app UI. Do not draw a border inside the app.
 
@@ -175,6 +182,11 @@ JSON API rather than scraped markup, and it is where the screen's `LAST COMMIT A
 today's pull request activity and the freshness line come from. The heatmap and the
 commits-today headline stay on the contributions page: only that source has per-day
 totals.
+
+Everything the screen draws from this feed is **scoped to the user's own today**, in the
+device's time zone — the last push as much as the pull request counts. The window is 90
+days deep and nothing on the screen carries a date, so an unscoped figure from it would
+be read as today's. Where there is nothing today, the line is omitted.
 
 Its limits are part of the contract and must be carried into anything built on it:
 
