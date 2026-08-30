@@ -263,6 +263,15 @@ is inert: nothing is written, nothing is fetched, and no field takes focus. Ever
 change costs a deliberate tap, and each row is a button rather than a tap gesture,
 so a swipe passing through cannot toggle anything on the way.
 
+One consequence of putting a list at the end of the pager was worth fixing at the
+source. A credential prompt takes focus when it appears, and the keyboard it raises
+belongs to the window rather than to the page, so it used to survive the swipe to the
+next screen — not drawn there, but still claiming the safe-area inset the pager
+deliberately honours. The centred screens only recentred; this one lost its last row
+and the hint beneath it, on the very path a new user takes. Prompts now release focus
+when the pager leaves their screen, which fixes it for every screen rather than
+teaching this one to ignore an inset it should never have been handed.
+
 ---
 
 ## Setup

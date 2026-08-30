@@ -50,6 +50,15 @@ Behavioural requirements:
   - Arriving on the screen is **inert**: nothing is written, nothing is fetched, no field
     takes focus. Every mutation is a `Button` tap, so a swipe through the screen during
     ambient use cannot change anything.
+- **A credential prompt releases its focus when the pager leaves its screen**, through
+  `releasesFocusWhenPagedAway(from:isFocused:)`. A prompt takes focus on appear, and the
+  keyboard it raises belongs to the window rather than the page, so without this it
+  survives the swipe: undrawn on the next screen, but still claiming the `.keyboard`
+  inset the pager deliberately honours. Centred screens only recentre; the settings
+  list loses its last row and the hint beneath it, on the default first-run path where
+  the uptime screen prompts for a key and the next swipe lands on settings. Every prompt
+  must pass the screen it is drawn on, because settings shows the same prompts as the
+  screens that own the credentials.
 - The Clock screen has two display preferences, both toggled by a double tap and both
   stored in `UserDefaults` under a `clock.` prefix — never the Keychain, which is reserved
   for credentials:
