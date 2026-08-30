@@ -4,7 +4,8 @@ import SwiftUI
 ///
 /// A centred `HH:MM:SS` readout with the time of day beneath it, matching frame
 /// `02 STOPWATCH` in `design/Pulse.dc.html`. Double-tapping anywhere on the readout
-/// starts and stops the stopwatch; a single tap does nothing.
+/// starts and stops the stopwatch, triple-tapping resets it to zero, and a single tap
+/// does nothing.
 ///
 /// The screen holds no stopwatch state of its own. It reads `StopwatchState` from
 /// the environment, which lives above the pager, and only drives the redraw: the
@@ -17,6 +18,16 @@ public struct StopwatchScreen: View {
     /// has one-second resolution; refreshing a little faster keeps the second
     /// boundary from lagging visibly without redrawing wastefully.
     private static let tickInterval: Duration = .milliseconds(250)
+
+    /// How far the readout dims at the bottom of the reset acknowledgement. Deep
+    /// enough to register, shallow enough that the digits never leave the screen.
+    private static let resetDipOpacity: Double = 0.2
+
+    /// How long the readout takes to dim on a reset.
+    private static let resetDipDuration: TimeInterval = 0.08
+
+    /// How long the readout takes to come back up to full after the dip.
+    private static let resetRecoveryDuration: TimeInterval = 0.4
 
     /// Formats the time-of-day readout. Fixed to `en_US_POSIX` so the 24-hour
     /// pattern in the reference is honoured regardless of the device's locale or its
@@ -32,9 +43,14 @@ public struct StopwatchScreen: View {
     @Environment(StopwatchState.self) private var stopwatch
     @Environment(\.activeScreen) private var activeScreen
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The instant the readout was last rendered against. Advanced by the tick loop.
     @State private var now = Date()
+
+    /// The readout's opacity. Held at `1` except during the brief dip that
+    /// acknowledges a reset.
+    @State private var readoutOpacity: Double = 1
 
     /// Creates the screen.
     public init() {}
@@ -50,6 +66,7 @@ public struct StopwatchScreen: View {
                 // below the readout start at the bottom of a one-em box.
                 lineBox: .tight
             )
+            .opacity(readoutOpacity)
 
             PixelLabel(
                 Self.timeOfDayFormatter.string(from: now),
@@ -62,11 +79,39 @@ public struct StopwatchScreen: View {
             .padding(.top, metrics(2))
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            stopwatch.toggle()
-        }
+        .gesture(
+            // The two gestures are composed rather than stacked as two separate
+            // `onTapGesture` modifiers. Stacked, the two-tap recogniser wins the
+            // moment the second tap lands and the third tap is never seen, so the
+            // reset would either never fire or fire after an unwanted toggle.
+            // `exclusively(before:)` attempts the longer gesture first and only falls
+            // through to the shorter one once the third tap has failed to arrive.
+            TapGesture(count: 3)
+                .onEnded { performReset() }
+                .exclusively(before: TapGesture(count: 2).onEnded { stopwatch.toggle() })
+        )
         .task(id: tickIdentity) {
             await runTickLoop()
+        }
+    }
+
+    /// Resets the stopwatch and acknowledges it on the readout.
+    ///
+    /// The readout is already showing `00:00:00` by the time the dip plays, so the
+    /// animation only has to say *something happened*; it carries no information of
+    /// its own and is dropped entirely when the user has asked for reduced motion.
+    /// Only `opacity` is animated, and nothing about the gesture waits on it.
+    private func performReset() {
+        stopwatch.reset()
+        now = Date()
+
+        guard !reduceMotion else { return }
+
+        withAnimation(.linear(duration: Self.resetDipDuration)) {
+            readoutOpacity = Self.resetDipOpacity
+        }
+        withAnimation(.easeOut(duration: Self.resetRecoveryDuration).delay(Self.resetDipDuration)) {
+            readoutOpacity = 1
         }
     }
 

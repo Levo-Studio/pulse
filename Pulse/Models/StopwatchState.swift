@@ -50,4 +50,21 @@ public final class StopwatchState {
             startedAt = date
         }
     }
+
+    /// Returns the stopwatch to a stopped reading of zero.
+    ///
+    /// Both halves of the derived elapsed value are cleared: the accumulated total of
+    /// the earlier runs and the timestamp the current run began at. A reset therefore
+    /// reads `00:00:00` immediately and keeps reading it however much wall-clock time
+    /// passes while the screen is paged away or the app is suspended.
+    ///
+    /// Resetting a running stopwatch **stops** it rather than restarting it from zero.
+    /// The gesture is the only way back to zero, so it has to be able to reach a
+    /// stopped zero; restarting instead would leave the reading climbing away from the
+    /// value the user just asked for, and a restart is still one further double tap
+    /// away.
+    public func reset() {
+        startedAt = nil
+        accumulated = 0
+    }
 }
