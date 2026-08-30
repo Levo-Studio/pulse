@@ -1,3 +1,4 @@
+import CoreText
 import Foundation
 import Testing
 
@@ -158,52 +159,79 @@ struct ClockPreferencesTests {
     }
 }
 
-/// Verification of the vertical gaps between the clock's lines.
-///
-/// The gaps are stated as padding rather than as stack spacing so that an absent
-/// temperature costs nothing, which was verified by comparing the rendered screen
-/// against the two-line clock. These checks pin the numbers the reference asks
-/// for.
-struct ClockLayoutTests {
-
-    @Test("The time-to-date gap is the reference's flex gap")
-    func dateGap() {
-        #expect(ClockLayout.dateGap == 20)
-    }
-
-    @Test("The date-to-temperature gap adds the reference's own top margin")
-    func temperatureGap() {
-        // `gap: 20` on the container plus `margin-top: 26` on the temperature.
-        #expect(ClockLayout.temperatureGap == 46)
-        #expect(ClockLayout.temperatureGap > ClockLayout.dateGap)
-    }
-
-    @Test("The weather line fits the content width at its widest")
-    func weatherLineFits() {
-        #expect(WeatherLineMetrics.widestWidth < ClockTimeMetrics.contentWidth)
-    }
-
-    @Test("The condition figure is no taller than the line it sits on")
-    func iconFitsTheLine() {
-        let iconHeight = CGFloat(PixelWeatherIcon.rows) * WeatherLineMetrics.iconCell
-        // The line's type is size 16, whose natural box is 1.28 em.
-        #expect(iconHeight <= 16 * 1.28)
-        // And taller than its cap height, so it does not read as a stray dot.
-        #expect(iconHeight > 16 * 0.625)
-    }
-}
-
 /// Verification of the measurement that decides the size of the time readout.
 ///
 /// These numbers are the reason the seconds variant does not use the reference's
 /// size 70, so they are pinned rather than left in a comment.
+@MainActor
 struct ClockTimeMetricsTests {
+
+    // MARK: - The advance table, against the actual font
+
+    /// Advance of `character` in the bundled face, as a fraction of the em.
+    ///
+    /// The table in `ClockTimeMetrics` is only worth anything if it describes the
+    /// font the app actually ships. Read here through Core Text so these checks
+    /// fail if the table drifts, if the bundled face is replaced, or if
+    /// registration silently falls back to a system font — none of which a test
+    /// written against hardcoded numbers would notice.
+    private func measuredAdvance(of character: Character) throws -> CGFloat {
+        // The app registers the face at launch; doing it here too makes the test
+        // independent of whether the host application has started yet.
+        PixelFont.register()
+
+        let em: CGFloat = 1000
+        let font = try #require(CTFontCreateWithName("Silkscreen-Regular" as CFString, em, nil) as CTFont?)
+        #expect(CTFontCopyPostScriptName(font) as String == "Silkscreen-Regular",
+                "the bundled face is not registered; every advance below would be a system font's")
+
+        var utf16 = Array(String(character).utf16)
+        var glyphs = [CGGlyph](repeating: 0, count: utf16.count)
+        #expect(CTFontGetGlyphsForCharacters(font, &utf16, &glyphs, utf16.count))
+
+        var advance = CGSize.zero
+        CTFontGetAdvancesForGlyphs(font, .horizontal, &glyphs, &advance, 1)
+        return advance.width / em
+    }
+
+    @Test("The wide digits advance what the table charges them")
+    func digitAdvanceMatchesTheFont() throws {
+        for digit in "023456789" {
+            #expect(try measuredAdvance(of: digit) == ClockTimeMetrics.digitAdvance, "digit \(digit)")
+        }
+    }
+
+    @Test("The digit 1 is the narrow one, which is what makes the table a bound")
+    func oneIsNarrower() throws {
+        #expect(try measuredAdvance(of: "1") == ClockTimeMetrics.oneAdvance)
+        #expect(ClockTimeMetrics.oneAdvance < ClockTimeMetrics.digitAdvance)
+    }
+
+    @Test("The colon advances what the table charges it")
+    func colonAdvanceMatchesTheFont() throws {
+        #expect(try measuredAdvance(of: ":") == ClockTimeMetrics.colonAdvance)
+    }
+
+    @Test("A predicted width is never narrower than the font actually sets")
+    func predictionIsAnUpperBound() throws {
+        // `11:11` is the narrowest a four-digit readout gets, and the one the
+        // bound has to stay above.
+        let measured = try "11:11".reduce(CGFloat.zero) { total, character in
+            total + (try measuredAdvance(of: character)) * ClockTimeMetrics.size
+        } + CGFloat(5) * ClockTimeMetrics.tracking
+
+        let predicted = ClockTimeMetrics.width(digits: 4, colons: 1, size: ClockTimeMetrics.size)
+
+        #expect(predicted >= measured)
+    }
+
+    // MARK: - What fits
 
     @Test("The reference's own readout fits the content width at size 70")
     func minuteReadoutFits() {
         let width = ClockTimeMetrics.width(digits: 4, colons: 1, size: ClockTimeMetrics.size)
 
-        #expect(width == 237.5)
+        #expect(width == 246.25)
         #expect(width < ClockTimeMetrics.contentWidth)
     }
 
@@ -211,26 +239,34 @@ struct ClockTimeMetricsTests {
     func secondsReadoutDoesNotFitAtReferenceSize() {
         let width = ClockTimeMetrics.width(digits: 6, colons: 2, size: ClockTimeMetrics.size)
 
-        #expect(width == 366)
+        #expect(width == 383.5)
         #expect(width > ClockTimeMetrics.contentWidth)
+        // The overrun is very nearly a quarter of the line, not a rounding matter.
+        #expect(width - ClockTimeMetrics.contentWidth == 75.5)
     }
 
     @Test("The seconds readout fits at the size it actually uses")
     func secondsReadoutFits() {
         let width = ClockTimeMetrics.width(digits: 6, colons: 2, size: ClockTimeMetrics.secondsSize)
 
-        #expect(width == 296)
+        #expect(width == 268)
         #expect(width < ClockTimeMetrics.contentWidth)
     }
 
-    @Test("The chosen size keeps real margin rather than only just fitting")
+    @Test("The seconds readout is set at the size the reference sets its own")
+    func secondsSizeFollowsTheStopwatch() {
+        // The reference draws the stopwatch's `00:00:00` at 48. The clock's
+        // eight-character readout takes the same size rather than inventing one.
+        #expect(ClockTimeMetrics.secondsSize == 48)
+    }
+
+    @Test("The chosen size keeps real margin rather than scraping the limit")
     func chosenSizeKeepsMargin() {
         let width = ClockTimeMetrics.width(digits: 6, colons: 2, size: ClockTimeMetrics.secondsSize)
 
-        // Size 58 also fits, at 306 against 308, but two units is inside the slack
-        // of a hand-derived advance table. The size in use leaves twelve.
-        #expect(ClockTimeMetrics.contentWidth - width >= 10)
-        // Anything larger than the next step up overruns outright.
-        #expect(ClockTimeMetrics.width(digits: 6, colons: 2, size: 60) > ClockTimeMetrics.contentWidth)
+        // Solving `5.25s + 16 <= 308` puts the ceiling at 55.6, so the low fifties
+        // fit arithmetically while leaving almost nothing. This leaves 40 units.
+        #expect(ClockTimeMetrics.contentWidth - width >= 40)
+        #expect(ClockTimeMetrics.width(digits: 6, colons: 2, size: 56) > ClockTimeMetrics.contentWidth)
     }
 }

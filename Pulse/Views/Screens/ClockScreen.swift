@@ -200,8 +200,8 @@ enum WeatherLineMetrics {
     /// four-character temperature such as `-21°C` at size 16 with 5 units of
     /// tracking.
     ///
-    /// Silkscreen advances the digits 0.75 em, the degree sign 0.625 em, `C`
-    /// 0.75 em and the minus 0.625 em.
+    /// Measured from the bundled face: Silkscreen advances the wide digits
+    /// 0.75 em, the degree sign 0.625 em, `C` 0.75 em and the minus 0.625 em.
     static let widestWidth: CGFloat = {
         let icon = CGFloat(PixelWeatherIcon.columns) * iconCell
         let glyphs: CGFloat = (0.625 + 0.75 + 0.75 + 0.625 + 0.75) * 16
@@ -217,28 +217,37 @@ enum WeatherLineMetrics {
 /// at that size, so the number that replaces it is kept here with its working
 /// rather than left as a literal in the view.
 ///
-/// **The measurement.** Silkscreen has an em of 1000 units; its digits advance
-/// 0.75 em and its colon 0.25 em. With the reference's 2 units of tracking after
-/// each character, at size 70:
+/// **The measurement.** Silkscreen has an em of 1000 units. Measured from the
+/// bundled `Silkscreen-Regular.ttf` with Core Text, the digits advance 0.75 em
+/// except `1`, which advances 0.625, and the colon advances **0.375**. The table
+/// below charges every digit 0.75, so every width it gives is an upper bound: a
+/// readout containing a `1` comes out narrower than predicted, never wider. With
+/// the reference's 2 units of tracking after each character, at size 70:
 ///
-/// - `HH:mm` is `4 * 52.5 + 17.5 + 5 * 2` = **237.5** units.
-/// - `HH:mm:ss` is `6 * 52.5 + 2 * 17.5 + 8 * 2` = **366** units.
+/// - `HH:mm` is `4 * 52.5 + 26.25 + 5 * 2` = **246.25** units.
+/// - `HH:mm:ss` is `6 * 52.5 + 2 * 26.25 + 8 * 2` = **383.5** units.
 ///
 /// The content width is the 360 unit frame less the backdrop's 26 units of
 /// padding either side — **308** units. That is also the narrowest budget any
 /// device offers: `PixelMetrics` scales on the smaller of the two axes, so a
 /// display whose width is the limiting axis lands on exactly 308 reference units
 /// of content, and a taller, narrower one such as an iPhone SE gets more. So 308
-/// is the number to fit, and `HH:mm:ss` at 70 overruns it by 58 units — a fifth
-/// of the line — which `PixelLabel` would neither wrap nor compress, pushing the
-/// readout off both edges of the screen.
+/// is the number to fit, and `HH:mm:ss` at 70 overruns it by 75.5 units — very
+/// nearly a quarter of the line — which `PixelLabel` would neither wrap nor
+/// compress, pushing the readout off both edges of the screen.
 ///
-/// **What is done instead.** The seconds readout drops to size 56:
-/// `6 * 42 + 2 * 14 + 8 * 2` = **296** units against a 308 unit budget. Size 58
-/// is the largest that fits at all, at 306, but two units of margin is inside the
-/// slack of a hand-derived advance table, so the next step down is used and the
-/// line keeps twelve. The minute readout is untouched at 70, so the screen as the
-/// reference draws it is exactly as it was.
+/// **What is done instead: size 48, which is the reference's own answer.** The
+/// design reference already sets an eight-character readout — the stopwatch's
+/// `00:00:00` — and it sets it at 48. Taking the same size here follows the
+/// reference's own idiom rather than inventing a number, it makes the app's two
+/// eight-character readouts agree, and it leaves real margin:
+/// `6 * 36 + 2 * 18 + 8 * 2` = **268** units against 308.
+///
+/// Solving the width against the budget gives a ceiling of 55.6, so sizes in the
+/// low fifties do fit arithmetically. None was used: none of them is a number the
+/// design already contains, and the largest of them scrape the limit. The minute
+/// readout is untouched at 70, so the screen as the reference draws it is exactly
+/// as it was.
 ///
 /// The alternative — keeping `HH:mm` at 70 and setting the seconds beside it at a
 /// smaller size — was rejected because it changes the shape of the headline
@@ -252,10 +261,19 @@ enum ClockTimeMetrics {
     static let contentWidth: CGFloat = 360 - (2 * 26)
 
     /// Advance of one digit, as a fraction of the em.
+    ///
+    /// The wide digit. `1` advances `oneAdvance` instead, so charging every digit
+    /// this much makes the widths below upper bounds rather than estimates.
     static let digitAdvance: CGFloat = 0.75
 
+    /// Advance of the digit `1`, as a fraction of the em.
+    ///
+    /// Deliberately not used by `width(digits:colons:size:)`, which budgets for
+    /// the wide digit throughout. Recorded so that bound stays auditable.
+    static let oneAdvance: CGFloat = 0.625
+
     /// Advance of the colon, as a fraction of the em.
-    static let colonAdvance: CGFloat = 0.25
+    static let colonAdvance: CGFloat = 0.375
 
     /// Tracking applied to the time, per the reference.
     static let tracking: CGFloat = 2
@@ -264,9 +282,14 @@ enum ClockTimeMetrics {
     static let size: CGFloat = 70
 
     /// Size of the `HH:mm:ss` readout.
-    static let secondsSize: CGFloat = 56
+    ///
+    /// The size the reference itself sets its own eight-character readout in —
+    /// the stopwatch's `00:00:00`.
+    static let secondsSize: CGFloat = 48
 
     /// Width of a readout made of `digits` digits and `colons` colons at `size`.
+    ///
+    /// An upper bound: every digit is charged the wide advance.
     static func width(digits: Int, colons: Int, size: CGFloat) -> CGFloat {
         let glyphs = CGFloat(digits) * digitAdvance + CGFloat(colons) * colonAdvance
         return glyphs * size + CGFloat(digits + colons) * tracking
