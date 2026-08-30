@@ -1,22 +1,22 @@
 import Foundation
 
-/// Something that can report the current temperature at a coordinate.
+/// Something that can report the current weather at a coordinate.
 ///
 /// The clock screen depends on this rather than on `OpenMeteoClient` directly, so
 /// the screen's failure handling can be exercised without a network.
-nonisolated public protocol TemperatureSource: Sendable {
+nonisolated public protocol WeatherSource: Sendable {
 
-    /// The current temperature at `coordinate`.
+    /// The current weather at `coordinate`.
     ///
     /// - Throws: Any error. Callers treat every failure the same way — the
     ///   temperature line is simply absent.
-    func temperature(at coordinate: Coordinate) async throws -> TemperatureReading
+    func weather(at coordinate: Coordinate) async throws -> WeatherSnapshot
 }
 
-/// Reads the current temperature from Open-Meteo.
+/// Reads the current weather from Open-Meteo.
 ///
 /// ```
-/// GET https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m
+/// GET https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&current=temperature_2m,weather_code
 /// ```
 ///
 /// **The service needs no API key, no account and no token.** That is why it was
@@ -31,7 +31,7 @@ nonisolated public protocol TemperatureSource: Sendable {
 /// Declared `nonisolated`: the project builds with `SWIFT_DEFAULT_ACTOR_ISOLATION =
 /// MainActor`, so without this the request and the decode of its response would
 /// both be pinned to the main actor.
-nonisolated public struct OpenMeteoClient: TemperatureSource {
+nonisolated public struct OpenMeteoClient: WeatherSource {
 
     /// Why a request did not produce a reading.
     public enum Failure: Error, Equatable, Sendable {
@@ -55,8 +55,9 @@ nonisolated public struct OpenMeteoClient: TemperatureSource {
     /// that broke that would fail on the first lookup.
     public static let endpoint = URL(string: "https://api.open-meteo.com/v1/forecast")!
 
-    /// The value of the `current=` parameter: the 2 metre air temperature.
-    public static let currentFields = "temperature_2m"
+    /// The value of the `current=` parameter: the 2 metre air temperature and the
+    /// WMO present-weather code the condition indicator is drawn from.
+    public static let currentFields = "temperature_2m,weather_code"
 
     private let session: URLSession
 
@@ -77,14 +78,15 @@ nonisolated public struct OpenMeteoClient: TemperatureSource {
         }
     }
 
-    /// The current temperature at `coordinate`.
+    /// The current weather at `coordinate`.
     ///
-    /// - Parameter coordinate: Where to read the temperature. Coarsened before it
-    ///   is sent.
-    /// - Returns: The current temperature in degrees Celsius.
+    /// - Parameter coordinate: Where to read the weather. Coarsened before it is
+    ///   sent.
+    /// - Returns: The current temperature in degrees Celsius, and the condition
+    ///   if the reported code maps to one.
     /// - Throws: `Failure`, or `CancellationError` when the caller's task was
     ///   cancelled mid-flight.
-    public func temperature(at coordinate: Coordinate) async throws -> TemperatureReading {
+    public func weather(at coordinate: Coordinate) async throws -> WeatherSnapshot {
         var request = URLRequest(url: Self.url(for: coordinate))
         request.httpMethod = "GET"
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -111,7 +113,7 @@ nonisolated public struct OpenMeteoClient: TemperatureSource {
         }
 
         do {
-            return try TemperatureResponseDecoder.decode(data)
+            return try WeatherResponseDecoder.decode(data)
         } catch {
             throw Failure.malformedResponse
         }

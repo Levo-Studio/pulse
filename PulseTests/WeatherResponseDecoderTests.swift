@@ -3,46 +3,70 @@ import Testing
 
 @testable import Pulse
 
-/// Verification of `TemperatureResponseDecoder` against Open-Meteo's documented
+/// Verification of `WeatherResponseDecoder` against Open-Meteo's documented
 /// response shape, and of the display form the clock draws from it.
 ///
 /// The payloads are transcribed from the live endpoint's answer to
-/// `?latitude=52.52&longitude=13.41&current=temperature_2m`. Nothing here touches
-/// the network, and the request carries no credential to leak into a fixture.
-struct TemperatureResponseDecoderTests {
+/// `?latitude=52.52&longitude=13.41&current=temperature_2m,weather_code`. Nothing
+/// here touches the network, and the request carries no credential to leak into a
+/// fixture.
+struct WeatherResponseDecoderTests {
 
     // MARK: - Decoding
 
-    @Test("A documented response yields the current temperature")
+    @Test("A documented response yields the temperature and the condition")
     func documentedResponse() throws {
         let json = """
         {"latitude":52.52,"longitude":13.419998,"generationtime_ms":0.03,
          "utc_offset_seconds":0,"timezone":"GMT","elevation":38.0,
-         "current_units":{"time":"iso8601","interval":"seconds","temperature_2m":"°C"},
-         "current":{"time":"2026-08-30T09:00","interval":900,"temperature_2m":21.3}}
+         "current_units":{"time":"iso8601","interval":"seconds","temperature_2m":"°C","weather_code":"wmo code"},
+         "current":{"time":"2026-08-30T09:00","interval":900,"temperature_2m":21.3,"weather_code":3}}
         """
 
-        let reading = try TemperatureResponseDecoder.decode(Data(json.utf8))
+        let snapshot = try WeatherResponseDecoder.decode(Data(json.utf8))
 
-        #expect(reading.celsius == 21.3)
-        #expect(reading.displayText == "21°C")
+        #expect(snapshot.temperature.celsius == 21.3)
+        #expect(snapshot.temperature.displayText == "21°C")
+        #expect(snapshot.condition == .cloudy)
     }
 
     @Test("A response without the units block is still read")
     func missingUnits() throws {
-        let json = #"{"current":{"temperature_2m":-4.0}}"#
+        let json = #"{"current":{"temperature_2m":-4.0,"weather_code":71}}"#
 
-        let reading = try TemperatureResponseDecoder.decode(Data(json.utf8))
+        let snapshot = try WeatherResponseDecoder.decode(Data(json.utf8))
 
-        #expect(reading.displayText == "-4°C")
+        #expect(snapshot.temperature.displayText == "-4°C")
+        #expect(snapshot.condition == .snow)
+    }
+
+    @Test("A missing weather code costs the indicator, not the temperature")
+    func missingWeatherCode() throws {
+        let json = #"{"current":{"temperature_2m":12.0}}"#
+
+        let snapshot = try WeatherResponseDecoder.decode(Data(json.utf8))
+
+        #expect(snapshot.temperature.displayText == "12°C")
+        #expect(snapshot.condition == nil)
+    }
+
+    @Test("An unmapped weather code costs the indicator, not the temperature")
+    func unmappedWeatherCode() throws {
+        // 4 is "smoke" in WMO 4677 and is not one of the six conditions drawn.
+        let json = #"{"current":{"temperature_2m":12.0,"weather_code":4}}"#
+
+        let snapshot = try WeatherResponseDecoder.decode(Data(json.utf8))
+
+        #expect(snapshot.temperature.displayText == "12°C")
+        #expect(snapshot.condition == nil)
     }
 
     @Test("A unit other than Celsius is rejected rather than mislabelled")
     func unexpectedUnit() {
         let json = #"{"current_units":{"temperature_2m":"°F"},"current":{"temperature_2m":70.0}}"#
 
-        #expect(throws: TemperatureResponseDecoder.Failure.unexpectedUnit("°F")) {
-            try TemperatureResponseDecoder.decode(Data(json.utf8))
+        #expect(throws: WeatherResponseDecoder.Failure.unexpectedUnit("°F")) {
+            try WeatherResponseDecoder.decode(Data(json.utf8))
         }
     }
 
@@ -55,8 +79,8 @@ struct TemperatureResponseDecoderTests {
         ""
     ])
     func malformedBodies(json: String) {
-        #expect(throws: TemperatureResponseDecoder.Failure.malformed) {
-            try TemperatureResponseDecoder.decode(Data(json.utf8))
+        #expect(throws: WeatherResponseDecoder.Failure.malformed) {
+            try WeatherResponseDecoder.decode(Data(json.utf8))
         }
     }
 
@@ -118,7 +142,7 @@ struct CoordinateTests {
         #expect(items.count == 3)
         #expect(items.first { $0.name == "latitude" }?.value == "52.52")
         #expect(items.first { $0.name == "longitude" }?.value == "-13.39")
-        #expect(items.first { $0.name == "current" }?.value == OpenMeteoClient.currentFields)
+        #expect(items.first { $0.name == "current" }?.value == "temperature_2m,weather_code")
 
         // The service needs no credential, so the URL must never grow one.
         let query = components.query ?? ""

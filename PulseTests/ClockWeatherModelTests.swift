@@ -31,10 +31,10 @@ struct ClockWeatherModelTests {
         }
     }
 
-    /// A temperature source that answers with whatever the test asked for.
-    private final class StubSource: TemperatureSource, @unchecked Sendable {
+    /// A weather source that answers with whatever the test asked for.
+    private final class StubSource: WeatherSource, @unchecked Sendable {
         enum Answer {
-            case reading(Double)
+            case reading(Double, WeatherCondition?)
             case failure(any Error)
         }
 
@@ -45,14 +45,18 @@ struct ClockWeatherModelTests {
             self.answer = answer
         }
 
-        func temperature(at coordinate: Coordinate) async throws -> TemperatureReading {
+        convenience init(reading celsius: Double) {
+            self.init(.reading(celsius, nil))
+        }
+
+        func weather(at coordinate: Coordinate) async throws -> WeatherSnapshot {
             callCount += 1
             switch answer {
-            case .reading(let celsius):
+            case .reading(let celsius, let condition):
                 guard let reading = TemperatureReading(celsius: celsius) else {
                     throw OpenMeteoClient.Failure.malformedResponse
                 }
-                return reading
+                return WeatherSnapshot(temperature: reading, condition: condition)
             case .failure(let error):
                 throw error
             }
@@ -69,7 +73,7 @@ struct ClockWeatherModelTests {
     func successfulLookup() async throws {
         let model = ClockWeatherModel(
             location: StubLocation(.coordinate(try Self.coordinate())),
-            source: StubSource(.reading(21.3))
+            source: StubSource(reading: 21.3)
         )
 
         await model.refresh()
@@ -83,7 +87,7 @@ struct ClockWeatherModelTests {
     func beforeFirstLookup() {
         let model = ClockWeatherModel(
             location: StubLocation(.denied),
-            source: StubSource(.reading(21))
+            source: StubSource(reading: 21)
         )
 
         #expect(model.temperatureText == nil)
@@ -91,7 +95,7 @@ struct ClockWeatherModelTests {
 
     @Test("A refused authorisation leaves no line and never reaches the network")
     func authorisationRefused() async {
-        let source = StubSource(.reading(21))
+        let source = StubSource(reading: 21)
         let model = ClockWeatherModel(location: StubLocation(.denied), source: source)
 
         await model.refresh()
@@ -102,7 +106,7 @@ struct ClockWeatherModelTests {
 
     @Test("No fix leaves no line and never reaches the network")
     func noFix() async {
-        let source = StubSource(.reading(21))
+        let source = StubSource(reading: 21)
         let model = ClockWeatherModel(location: StubLocation(.unavailable), source: source)
 
         await model.refresh()
@@ -128,11 +132,54 @@ struct ClockWeatherModelTests {
         #expect(model.temperatureText == nil)
     }
 
+    // MARK: - The condition
+
+    @Test("A mapped condition arrives alongside the temperature")
+    func conditionAccompaniesTemperature() async throws {
+        let model = ClockWeatherModel(
+            location: StubLocation(.coordinate(try Self.coordinate())),
+            source: StubSource(.reading(21.3, .rain))
+        )
+
+        await model.refresh()
+
+        #expect(model.temperatureText == "21°C")
+        #expect(model.condition == .rain)
+    }
+
+    @Test("An unmapped condition costs the indicator, not the temperature")
+    func conditionAbsentButTemperaturePresent() async throws {
+        let model = ClockWeatherModel(
+            location: StubLocation(.coordinate(try Self.coordinate())),
+            source: StubSource(.reading(21.3, nil))
+        )
+
+        await model.refresh()
+
+        #expect(model.temperatureText == "21°C")
+        #expect(model.condition == nil)
+    }
+
+    @Test("A refusal clears the condition along with the temperature")
+    func refusalClearsCondition() async throws {
+        let location = StubLocation(.coordinate(try Self.coordinate()))
+        let model = ClockWeatherModel(location: location, source: StubSource(.reading(21, .snow)))
+
+        await model.refresh()
+        #expect(model.condition == .snow)
+
+        location.outcome = .denied
+        await model.refresh()
+
+        #expect(model.condition == nil)
+        #expect(model.temperatureText == nil)
+    }
+
     // MARK: - The cached reading
 
     @Test("A later failure keeps the last reading rather than blanking the line")
     func cacheSurvivesFailure() async throws {
-        let source = StubSource(.reading(21))
+        let source = StubSource(reading: 21)
         let model = ClockWeatherModel(
             location: StubLocation(.coordinate(try Self.coordinate())),
             source: source
@@ -147,7 +194,7 @@ struct ClockWeatherModelTests {
 
     @Test("A cached reading is dropped once it is older than the staleness limit")
     func cacheExpires() async throws {
-        let source = StubSource(.reading(21))
+        let source = StubSource(reading: 21)
         let model = ClockWeatherModel(
             location: StubLocation(.coordinate(try Self.coordinate())),
             source: source,
@@ -166,7 +213,7 @@ struct ClockWeatherModelTests {
     @Test("A refusal clears a reading that is already on screen")
     func refusalClearsCache() async throws {
         let location = StubLocation(.coordinate(try Self.coordinate()))
-        let model = ClockWeatherModel(location: location, source: StubSource(.reading(21)))
+        let model = ClockWeatherModel(location: location, source: StubSource(reading: 21))
 
         await model.refresh()
         #expect(model.temperatureText == "21°C")
@@ -179,7 +226,7 @@ struct ClockWeatherModelTests {
 
     @Test("A cancelled lookup keeps the line as it was")
     func cancellationIsNotAFailure() async throws {
-        let source = StubSource(.reading(21))
+        let source = StubSource(reading: 21)
         let model = ClockWeatherModel(
             location: StubLocation(.coordinate(try Self.coordinate())),
             source: source
@@ -197,7 +244,7 @@ struct ClockWeatherModelTests {
     @Test("The loop takes one reading and then waits out the refresh interval")
     func loopRefreshesOnceThenWaits() async throws {
         let location = StubLocation(.coordinate(try Self.coordinate()))
-        let model = ClockWeatherModel(location: location, source: StubSource(.reading(21)))
+        let model = ClockWeatherModel(location: location, source: StubSource(reading: 21))
 
         let loop = Task { await model.run() }
         // Long enough for the immediate first pass, far short of the interval.
@@ -212,7 +259,7 @@ struct ClockWeatherModelTests {
     @Test("The loop stops asking once the user has refused")
     func loopStopsAfterRefusal() async {
         let location = StubLocation(.denied)
-        let model = ClockWeatherModel(location: location, source: StubSource(.reading(21)))
+        let model = ClockWeatherModel(location: location, source: StubSource(reading: 21))
 
         await model.run()
 

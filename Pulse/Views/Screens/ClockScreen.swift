@@ -69,7 +69,7 @@ public struct ClockScreen: View {
                 // The reference gives this line `margin-top: 26` on top of the
                 // frame's 20 unit gap, so the drop below the date is deliberately
                 // larger than the drop from the time to the date.
-                PixelLabel(temperature, size: 16, tracking: 5, color: PixelTheme.muted)
+                weatherLine(temperature: temperature)
                     .padding(.top, metrics(26))
             }
         }
@@ -84,6 +84,49 @@ public struct ClockScreen: View {
             guard isVisible else { return }
             await weather.run()
         }
+    }
+
+    /// The temperature, with the condition indicator to its left when there is one
+    /// to draw and the user has not hidden it.
+    ///
+    /// The indicator sits **on** the temperature line rather than above it. The
+    /// reference draws three lines and the screen keeps three: the condition is a
+    /// property of the same reading as the temperature, so setting it as a
+    /// separate row would give the weather more of the screen than the date has,
+    /// and would push the whole block off the vertical centre the reference
+    /// composes around. Reading left to right, the figure qualifies the number the
+    /// way a unit does.
+    ///
+    /// The indicator's cell is 2 reference units, so the figure is 14 units tall
+    /// against the line's 16 unit type — visibly subordinate to the time at 70,
+    /// and no taller than the line it belongs to.
+    @ViewBuilder
+    private func weatherLine(temperature: String) -> some View {
+        HStack(spacing: metrics(WeatherLineMetrics.gap)) {
+            if preferences.showsCondition, let condition = weather.condition {
+                PixelWeatherIcon(
+                    condition: condition,
+                    cell: metrics(WeatherLineMetrics.iconCell),
+                    color: PixelTheme.muted
+                )
+            }
+
+            PixelLabel(temperature, size: 16, tracking: 5, color: PixelTheme.muted)
+        }
+        // The second of the screen's two hit shapes. Scoping it to this line keeps
+        // a tap here off the time above, and a tap on the time off this line.
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { preferences.showsCondition.toggle() }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(weatherAccessibilityLabel(temperature: temperature))
+        .accessibilityHint("Double tap to show or hide the condition")
+    }
+
+    private func weatherAccessibilityLabel(temperature: String) -> String {
+        guard preferences.showsCondition, let condition = weather.condition else {
+            return temperature
+        }
+        return "\(condition.rawValue), \(temperature)"
     }
 
     /// Whether the screen is the one the user is actually looking at.
@@ -104,6 +147,42 @@ public struct ClockScreen: View {
             ticker.stop()
         }
     }
+}
+
+/// The measurements of the weather line, in design-reference units.
+///
+/// The reference draws only the temperature there, at size 16 with 5 units of
+/// tracking; the condition indicator is an addition, so its size is derived from
+/// the line it joins rather than transcribed.
+enum WeatherLineMetrics {
+
+    /// Side of one cell of the indicator's grid.
+    ///
+    /// Two units, making the eight-by-seven figure 16 units wide and 14 tall. That
+    /// is a shade taller than the line's 10 unit cap height and shorter than its
+    /// 20.5 unit line box, so the figure sits inside the line rather than
+    /// stretching it.
+    static let iconCell: CGFloat = 2
+
+    /// Space between the indicator and the temperature.
+    ///
+    /// Six units, a little wider than the 5 units of tracking inside the number,
+    /// so the figure reads as a separate mark rather than as another glyph of the
+    /// same word.
+    static let gap: CGFloat = 6
+
+    /// Width of the whole line at its widest: the figure, the gap, and a
+    /// four-character temperature such as `-21°C` at size 16 with 5 units of
+    /// tracking.
+    ///
+    /// Silkscreen advances the digits 0.75 em, the degree sign 0.625 em, `C`
+    /// 0.75 em and the minus 0.625 em.
+    static let widestWidth: CGFloat = {
+        let icon = CGFloat(PixelWeatherIcon.columns) * iconCell
+        let glyphs: CGFloat = (0.625 + 0.75 + 0.75 + 0.625 + 0.75) * 16
+        let tracking: CGFloat = 5 * 5
+        return icon + gap + glyphs + tracking
+    }()
 }
 
 /// The arithmetic behind the size of the time readout, in design-reference units.
@@ -188,7 +267,7 @@ enum ClockTimeMetrics {
 ///   is made for as long as the screen stays in view. Paging back restarts the
 ///   loop, so authorisation granted in Settings is picked up on the next visit.
 ///
-/// The location provider and the temperature source are injected, with the real
+/// The location provider and the weather source are injected, with the real
 /// ones as defaults, so every one of those paths is reachable from tests without a
 /// prompt, a fix, or a network.
 @MainActor
@@ -221,6 +300,13 @@ final class ClockWeatherModel {
     /// nothing to draw.
     private(set) var temperatureText: String?
 
+    /// The condition to draw beside the temperature, or `nil` when the service
+    /// reported a code the display does not cover.
+    ///
+    /// Always `nil` when `temperatureText` is: the indicator belongs to the
+    /// temperature line and never appears without it.
+    private(set) var condition: WeatherCondition?
+
     /// When the displayed reading was taken.
     private var lastSuccess: Date?
 
@@ -231,7 +317,7 @@ final class ClockWeatherModel {
     private var isRefused = false
 
     private let location: CoarseLocationProviding
-    private let source: TemperatureSource
+    private let source: WeatherSource
 
     /// Creates the model.
     ///
@@ -239,11 +325,11 @@ final class ClockWeatherModel {
     ///   - location: Where the coordinate comes from. `nil` builds the real
     ///     CoreLocation provider, which cannot be a default argument because those
     ///     are evaluated outside the main actor it is confined to.
-    ///   - source: Where the temperature comes from.
+    ///   - source: Where the weather comes from.
     ///   - staleAfter: How old a cached reading may get before it is dropped.
     init(
         location: CoarseLocationProviding? = nil,
-        source: TemperatureSource = OpenMeteoClient(),
+        source: WeatherSource = OpenMeteoClient(),
         staleAfter: TimeInterval = ClockWeatherModel.defaultStaleAfter
     ) {
         self.location = location ?? CoreLocationProvider()
@@ -316,8 +402,9 @@ final class ClockWeatherModel {
 
     private func load(at coordinate: Coordinate) async {
         do {
-            let fetched = try await source.temperature(at: coordinate)
-            temperatureText = fetched.displayText
+            let snapshot = try await source.weather(at: coordinate)
+            temperatureText = snapshot.temperature.displayText
+            condition = snapshot.condition
             lastSuccess = Date()
         } catch is CancellationError {
             // The loop was cancelled mid-flight; the cached line stays as it was.
@@ -339,6 +426,7 @@ final class ClockWeatherModel {
 
     private func discard() {
         temperatureText = nil
+        condition = nil
         lastSuccess = nil
     }
 }
