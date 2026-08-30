@@ -183,20 +183,26 @@ the edge. The character budget is computed against the widest advance in
 Silkscreen — the face is not fixed-pitch — so a name made entirely of wide
 glyphs still cannot overrun.
 
-> **The response schema of the uptime endpoint is unverified.** It could only be
-> probed without a key, which answers
-> `401 {"error":"Unauthorized","code":"UNAUTHORIZED"}`, so no successful body has
-> ever been observed. `UptimeResponseDecoder` is therefore deliberately tolerant,
-> and every assumption is collected in that one type: the list may be top-level or
-> wrapped under one of several envelope keys; the name and state are read from the
-> first matching key out of a candidate list; an unrecognised state token becomes
-> `unknown` rather than an error. Numeric status codes are **not** interpreted at
-> all — they are not standardised across uptime products, and reading `1` as "up"
-> could paint a down service green. A non-empty list none of whose entries yielded
-> a row is raised as an error rather than returned as an empty list, so an
-> unrecognised name key surfaces as `UNREADABLE RESPONSE` instead of silently
-> blanking the screen while the countdown keeps ticking. Once the real shape is
-> known this is a one-line correction.
+The response is decoded with plain `Codable` against the endpoint's documented
+schema: the project list sits at `data.projects`, beside the calling key's
+metadata at `data.key`. Only the three fields the screen draws are decoded —
+`name`, `currentStatus` and `lastCheckedAt` — and everything else the API sends
+is ignored rather than rejected, so the endpoint can grow without breaking the
+app. A missing `data` or `projects` member is an error, not an empty result:
+"nothing is monitored" and "this is not the response we expect" must never look
+the same on screen. The key's `keyPrefix` is deliberately not decoded — it is a
+fragment of the user's own token, and a value never held cannot be leaked.
+
+`currentStatus` is one of `up`, `slow`, `degraded`, `down` and `unknown`. The
+reference draws four colours, so `slow` and `degraded` share the amber dot.
+**Any value outside that vocabulary maps to unknown, never to a guessed state**,
+and so does an absent one.
+
+`LAST CHECK` shows the newest `lastCheckedAt` in the response — the API's own
+clock, when the states on screen were actually observed — rather than when the
+app last fetched them. Where the response carries no timestamp the line stays as
+dashes; the local fetch time is never quietly substituted for a different
+quantity under the same label.
 
 <p align="center">
   <img src="docs/uptime.svg" alt="Uptime screen: service status resolving with the refresh countdown ticking down" width="200">
