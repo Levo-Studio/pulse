@@ -3,131 +3,150 @@ import Testing
 
 @testable import Pulse
 
-/// Verification of `UptimeResponseDecoder` against authored sample payloads.
+/// Verification of `UptimeResponseDecoder` against the documented schema of
+/// `GET /api/uptime/listall`.
 ///
-/// The real response shape of `GET /api/uptime/listall` has never been observed — the
-/// endpoint answers `401` without a key — so these payloads are invented rather than
-/// recorded. They cover every shape the decoder claims to accept, which is what makes
-/// the tolerance auditable: when the real schema is confirmed, the cases that no longer
-/// apply can be deleted with the tolerance they describe.
-///
-/// Nothing here touches the network and no key is involved.
+/// The payloads here are built from the API documentation's own example, including it
+/// verbatim, so a change to the endpoint's contract fails here rather than on the
+/// screen. Nothing touches the network and no key is involved: the sample key metadata
+/// is the documentation's placeholder, not a credential.
 struct UptimeResponseDecoderTests {
 
-    // MARK: - Shapes
+    // MARK: - The documented payload
 
-    @Test("A top-level array decodes in order, with unrecognised states unknown")
-    func topLevelArray() throws {
+    /// The example response from the API documentation, reproduced field for field.
+    private static let documentedPayload = """
+    {
+      "data": {
+        "key": { "id": "uuid", "name": "Statuspage", "keyPrefix": "lsu_abcd1234" },
+        "projects": [
+          {
+            "id": "notion-page-id",
+            "name": "Levo Studio Analytics",
+            "customer": "Julius Grimm",
+            "domain": "analytics.levo-studio.com",
+            "category": "apps-internal",
+            "serverLocation": "DE",
+            "hostingPrice": 42,
+            "currentStatus": "up",
+            "lastCheckedAt": "2026-06-13T12:00:00.000Z",
+            "lastStatusChangeAt": "2026-06-13T11:30:00.000Z",
+            "monitoringPausedAt": null,
+            "consecutiveFailureCount": 0,
+            "summary": {
+              "totalChecks": 120, "successfulChecks": 118, "degradedChecks": 2,
+              "downChecks": 0, "uptimePercent": 100, "avgResponseMs": 180,
+              "medianResponseMs": 170, "p95ResponseMs": 260, "minResponseMs": 120,
+              "maxResponseMs": 3200, "latestResponseMs": 175,
+              "latestCheckedAt": "2026-06-13T12:00:00.000Z", "incidentCount": 0
+            }
+          }
+        ]
+      }
+    }
+    """
+
+    @Test("The documented payload decodes to its one project, timestamp included")
+    func documentedPayloadDecodes() throws {
+        let services = try UptimeResponseDecoder.decode(Data(Self.documentedPayload.utf8))
+
+        #expect(services.count == 1)
+        #expect(services.first?.name == "Levo Studio Analytics")
+        #expect(services.first?.status == .operational)
+        // 2026-06-13T12:00:00.000Z.
+        #expect(services.first?.lastCheckedAt == Date(timeIntervalSince1970: 1_781_352_000))
+    }
+
+    @Test("Fields the screen does not draw are ignored rather than rejected")
+    func unusedFieldsAreIgnored() throws {
+        // The documented payload above carries the customer, domain, hosting price and
+        // the whole summary block. None is decoded, and none of it fails the parse.
+        #expect(try UptimeResponseDecoder.decode(Data(Self.documentedPayload.utf8)).count == 1)
+    }
+
+    // MARK: - Status mapping
+
+    @Test("Every documented status maps to its square, in the order the API sent them")
+    func everyStatus() throws {
         let json = """
-        [{"name":"API-GATEWAY","status":"up"},
-         {"name":"REDIS-CACHE","status":"degraded"},
-         {"name":"K3S-CLUSTER","status":"down"},
-         {"name":"BACKUP-JOB","status":"wat"}]
+        {"data":{"key":{"id":"uuid","name":"Statuspage","keyPrefix":"lsu_abcd1234"},
+         "projects":[
+           {"id":"1","name":"API GATEWAY","currentStatus":"up","lastCheckedAt":"2026-06-13T12:00:00.000Z"},
+           {"id":"2","name":"REDIS CACHE","currentStatus":"slow","lastCheckedAt":"2026-06-13T12:00:01.000Z"},
+           {"id":"3","name":"POSTGRES 01","currentStatus":"degraded","lastCheckedAt":"2026-06-13T12:00:02.000Z"},
+           {"id":"4","name":"K3S CLUSTER","currentStatus":"down","lastCheckedAt":"2026-06-13T12:00:03.000Z"},
+           {"id":"5","name":"BACKUP JOB","currentStatus":"unknown","lastCheckedAt":null}]}}
         """
 
         let services = try UptimeResponseDecoder.decode(Data(json.utf8))
 
-        #expect(services.map(\.name) == ["API-GATEWAY", "REDIS-CACHE", "K3S-CLUSTER", "BACKUP-JOB"])
-        #expect(services.map(\.status) == [.operational, .degraded, .down, .unknown])
-    }
-
-    @Test("Alternative name and status keys are read, in any case or separator style")
-    func alternativeKeySpellings() throws {
-        let json = """
-        {"data":[{"service_name":"WEB-FRONTEND","currentStatus":"Operational"},
-                 {"friendly_name":"POSTGRES-01","state":"Partial Outage"}]}
-        """
-
-        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
-
-        #expect(services.map(\.name) == ["WEB-FRONTEND", "POSTGRES-01"])
-        #expect(services.map(\.status) == [.operational, .degraded])
-    }
-
-    @Test("Every accepted wrapper key yields the list", arguments: UptimeResponseDecoder.envelopeKeys)
-    func envelopeKeys(key: String) throws {
-        let json = #"{"\#(key)":[{"name":"X","health":"healthy"}]}"#
-
-        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
-
-        #expect(services == [UptimeService(name: "X", status: .operational)])
-    }
-
-    @Test("A wrapper nested one level deeper still yields the list")
-    func nestedEnvelope() throws {
-        let json = #"{"data":{"services":[{"name":"NESTED","status":"ok"}]}}"#
-
-        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
-
-        #expect(services == [UptimeService(name: "NESTED", status: .operational)])
-    }
-
-    @Test("An empty list is valid and decodes to no rows")
-    func emptyList() throws {
-        #expect(try UptimeResponseDecoder.decode(Data(#"{"data":[]}"#.utf8)).isEmpty)
-    }
-
-    // MARK: - Tolerance
-
-    @Test("Names are trimmed, bare strings are names, and nameless entries are dropped")
-    func entryTolerance() throws {
-        let json = """
-        [{"name":"NO-STATUS"},
-         {"status":"up"},
-         "BARE-STRING",
-         {"name":"  PADDED  ","status":"  UP  "}]
-        """
-
-        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
-
-        #expect(services.map(\.name) == ["NO-STATUS", "BARE-STRING", "PADDED"])
-        #expect(services.map(\.status) == [.unknown, .unknown, .operational])
-    }
-
-    @Test("Boolean states are read; numeric ones are not guessed at")
-    func booleanAndNumericStates() throws {
-        let json = """
-        {"services":[{"title":"WORKER-QUEUE","up":true},
-                     {"label":"MAIL-RELAY","online":false},
-                     {"name":"CDN-EDGE","status":1},
-                     {"name":"OBJECT-STORE","status":0}]}
-        """
-
-        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
-
-        #expect(services.map(\.name) == ["WORKER-QUEUE", "MAIL-RELAY", "CDN-EDGE", "OBJECT-STORE"])
-        // 1 and 0 stay unknown on purpose: numeric status codes are not standardised
-        // across uptime products, so reading them would risk a confidently wrong square.
-        #expect(services.map(\.status) == [.operational, .down, .unknown, .unknown])
+        #expect(services.map(\.name) == [
+            "API GATEWAY", "REDIS CACHE", "POSTGRES 01", "K3S CLUSTER", "BACKUP JOB"
+        ])
+        // `slow` and `degraded` share the amber square: the reference draws four
+        // colours against the API's five states.
+        #expect(services.map(\.status) == [.operational, .degraded, .degraded, .down, .unknown])
+        #expect(services.last?.lastCheckedAt == nil)
     }
 
     @Test(
-        "State tokens map through the vocabulary regardless of case or separator",
+        "A status outside the documented vocabulary is unknown, never a guessed state",
         arguments: [
-            ("operational", UptimeStatus.operational),
-            ("Degraded-Performance", .degraded),
-            ("MAJOR OUTAGE", .down),
-            ("MAINTENANCE", .unknown),
-            ("something new", .unknown)
+            "maintenance", "paused", "UP-ISH", "ok", "true", "1", "", "operational"
         ]
     )
-    func vocabulary(token: String, expected: UptimeStatus) {
-        #expect(UptimeResponseDecoder.status(for: token) == expected)
+    func unrecognisedStatus(value: String) throws {
+        let json = """
+        {"data":{"projects":[{"id":"1","name":"MYSTERY","currentStatus":"\(value)"}]}}
+        """
+
+        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
+
+        #expect(services == [UptimeService(name: "MYSTERY", status: .unknown)])
     }
 
-    @Test("A missing state is unknown")
-    func missingState() {
-        #expect(UptimeResponseDecoder.status(for: nil) == .unknown)
+    @Test("A missing status is unknown, and casing alone does not blank a row")
+    func missingAndMiscasedStatus() throws {
+        let json = """
+        {"data":{"projects":[{"id":"1","name":"NO STATUS"},
+                             {"id":"2","name":"SHOUTED","currentStatus":"DOWN"}]}}
+        """
+
+        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
+
+        #expect(services.map(\.status) == [.unknown, .down])
     }
 
-    // MARK: - Rejection
+    // MARK: - Empty and malformed
+
+    @Test("An empty projects array is valid and decodes to no rows")
+    func emptyProjects() throws {
+        let json = #"{"data":{"key":{"id":"uuid","name":"Statuspage"},"projects":[]}}"#
+
+        #expect(try UptimeResponseDecoder.decode(Data(json.utf8)).isEmpty)
+    }
+
+    @Test("Absent key metadata still yields the project list")
+    func keyMetadataIsOptional() throws {
+        let json = #"{"data":{"projects":[{"id":"1","name":"X","currentStatus":"up"}]}}"#
+
+        #expect(try UptimeResponseDecoder.decode(Data(json.utf8)).count == 1)
+    }
 
     @Test(
-        "A body that is not a list of services is rejected",
+        "A body that is not the documented envelope is rejected",
         arguments: [
+            // A missing `projects` key is a real failure, never an empty screen.
+            #"{"data":{"key":{"id":"uuid","name":"Statuspage"}}}"#,
+            // As is a missing `data` wrapper, however plausible the inner shape.
+            #"{"projects":[{"id":"1","name":"X","currentStatus":"up"}]}"#,
+            // The documented error bodies are not project lists.
             #"{"error":"Unauthorized","code":"UNAUTHORIZED"}"#,
-            "not json at all",
-            "42"
+            #"{"error":"Project not found","code":"PROJECT_NOT_FOUND"}"#,
+            // Neither is a bare list, a scalar, or something that is not JSON at all.
+            #"[{"id":"1","name":"X","currentStatus":"up"}]"#,
+            "42",
+            "not json at all"
         ]
     )
     func unusableBodies(body: String) {
@@ -136,11 +155,33 @@ struct UptimeResponseDecoderTests {
         }
     }
 
-    @Test("A list whose entries yield no rows is an error, not an empty screen")
-    func unreadableEntriesAreRejected() {
-        // Names keyed as `host` — outside `nameKeys` — would otherwise decode to an
-        // empty list and blank the display with no signal at all.
-        let json = #"{"services":[{"host":"api.example.com","status":"up"}]}"#
+    @Test("A project with no name is a malformed response, not a blank row")
+    func namelessProjectIsRejected() {
+        let json = #"{"data":{"projects":[{"id":"1","currentStatus":"up"}]}}"#
+
+        #expect(throws: (any Error).self) {
+            try UptimeResponseDecoder.decode(Data(json.utf8))
+        }
+    }
+
+    @Test("A timestamp without fractional seconds is accepted")
+    func wholeSecondTimestamp() throws {
+        let json = """
+        {"data":{"projects":[{"id":"1","name":"X","currentStatus":"up",
+         "lastCheckedAt":"2026-06-13T12:00:00Z"}]}}
+        """
+
+        let services = try UptimeResponseDecoder.decode(Data(json.utf8))
+
+        #expect(services.first?.lastCheckedAt == Date(timeIntervalSince1970: 1_781_352_000))
+    }
+
+    @Test("A timestamp that is not a date fails the response rather than being ignored")
+    func malformedTimestampIsRejected() {
+        let json = """
+        {"data":{"projects":[{"id":"1","name":"X","currentStatus":"up",
+         "lastCheckedAt":"yesterday"}]}}
+        """
 
         #expect(throws: (any Error).self) {
             try UptimeResponseDecoder.decode(Data(json.utf8))

@@ -79,7 +79,10 @@ struct UptimeModelTests {
         KeychainStore(service: "levo-studio.PulseTests.\(UUID().uuidString)")
     }
 
-    private func makeClient(status: Int, body: String = "[]") -> UptimeAPIClient {
+    /// An empty but well-formed response body, in the documented envelope.
+    private static let emptyPayload = #"{"data":{"projects":[]}}"#
+
+    private func makeClient(status: Int, body: String = emptyPayload) -> UptimeAPIClient {
         StubURLProtocol.statusCode = status
         StubURLProtocol.body = Data(body.utf8)
 
@@ -166,17 +169,81 @@ struct UptimeModelTests {
         #expect(keychain.set(Self.storedPlaceholder, for: .uptimeAPIKey))
         defer { keychain.remove(.uptimeAPIKey) }
 
-        let body = #"[{"name":"API-GATEWAY","status":"up"}]"#
+        let body = """
+        {"data":{"key":{"id":"uuid","name":"Statuspage","keyPrefix":"lsu_abcd1234"},
+         "projects":[{"id":"1","name":"API-GATEWAY","currentStatus":"up",
+                      "lastCheckedAt":"2026-06-13T12:00:00.000Z"}]}}
+        """
         let model = UptimeModel(keychain: keychain, client: makeClient(status: 200, body: body))
         await model.refresh()
 
-        #expect(model.services == [UptimeService(name: "API-GATEWAY", status: .operational)])
+        #expect(model.services == [
+            UptimeService(
+                name: "API-GATEWAY",
+                status: .operational,
+                lastCheckedAt: Date(timeIntervalSince1970: 1_781_352_000)
+            )
+        ])
         #expect(model.faultText == nil)
-        #expect(model.lastCheckText != "--:--:--")
+        // LAST CHECK reports the API's own check time, not when the app last asked.
+        #expect(model.lastCheckText == Self.localClockText(for: 1_781_352_000))
         // The countdown must never read above the interval, whatever the relationship
         // between the sampled clock and the attempt that has just completed.
         #expect(model.secondsUntilRefresh <= 20)
         #expect(model.secondsUntilRefresh >= 0)
+    }
+
+    @Test("LAST CHECK reads the newest API timestamp, and dashes when there is none")
+    func lastCheckSource() async {
+        let keychain = makeStore()
+        #expect(keychain.set(Self.storedPlaceholder, for: .uptimeAPIKey))
+        defer { keychain.remove(.uptimeAPIKey) }
+
+        let body = """
+        {"data":{"projects":[
+          {"id":"1","name":"OLDER","currentStatus":"up","lastCheckedAt":"2026-06-13T11:59:00.000Z"},
+          {"id":"2","name":"NEWER","currentStatus":"down","lastCheckedAt":"2026-06-13T12:00:00.000Z"}]}}
+        """
+        let model = UptimeModel(keychain: keychain, client: makeClient(status: 200, body: body))
+        await model.refresh()
+        #expect(model.lastCheckText == Self.localClockText(for: 1_781_352_000))
+
+        // A response the API stamps with no check time leaves the line as dashes
+        // rather than quietly substituting the device's own fetch time, which is a
+        // different quantity and would read as the same one.
+        let unstamped = UptimeModel(
+            keychain: keychain,
+            client: makeClient(status: 200, body: #"{"data":{"projects":[{"id":"1","name":"X"}]}}"#)
+        )
+        await unstamped.refresh()
+        #expect(unstamped.services.count == 1)
+        #expect(unstamped.lastCheckText == "--:--:--")
+    }
+
+    @Test("A 404 is reported as itself and does not send the user back to the prompt")
+    func projectNotFound() async {
+        let keychain = makeStore()
+        #expect(keychain.set(Self.storedPlaceholder, for: .uptimeAPIKey))
+        defer { keychain.remove(.uptimeAPIKey) }
+
+        let model = UptimeModel(
+            keychain: keychain,
+            client: makeClient(status: 404, body: #"{"error":"Not found","code":"PROJECT_NOT_FOUND"}"#)
+        )
+        await model.refresh()
+
+        #expect(model.faultText == "SERVER ERROR: 404")
+        #expect(!model.needsKey)
+    }
+
+    /// The reference's `HH:mm:ss`, in the device's time zone, for an instant.
+    ///
+    /// Computed rather than hardcoded so the expectation holds wherever the tests run.
+    private static func localClockText(for epochSeconds: TimeInterval) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter.string(from: Date(timeIntervalSince1970: epochSeconds))
     }
 }
 
@@ -188,7 +255,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var statusCode = 200
 
     /// Body the stub answers with.
-    nonisolated(unsafe) static var body = Data("[]".utf8)
+    nonisolated(unsafe) static var body = Data(#"{"data":{"projects":[]}}"#.utf8)
 
     override class func canInit(with request: URLRequest) -> Bool { true }
 
