@@ -19,7 +19,10 @@ public struct GitHubScreen: View {
 
     public var body: some View {
         Group {
-            if let username = model.username, !isEditingUsername {
+            if !model.hasRestoredUsername {
+                // Neither state is correct until the Keychain has been read.
+                PixelScreenBackdrop(placement: .topInset) { EmptyView() }
+            } else if let username = model.username, !isEditingUsername {
                 display(username: username)
             } else {
                 GitHubUsernamePrompt(
@@ -33,6 +36,7 @@ public struct GitHubScreen: View {
                 )
             }
         }
+        .task { model.restoreUsername() }
         // Polling is keyed on both the active screen and the username, so it starts
         // when the screen is paged in or the name changes, and is cancelled the
         // moment the user pages away.
@@ -171,14 +175,32 @@ final class GitHubActivityModel {
     private let store: KeychainStore
     private let client: GitHubContributionsClient
 
-    /// Creates the model, restoring the username from the Keychain.
-    init(
-        store: KeychainStore = KeychainStore(),
-        client: GitHubContributionsClient = GitHubContributionsClient()
-    ) {
-        self.store = store
-        self.client = client
-        self.username = store.string(for: .gitHubUsername)
+    /// Creates the model.
+    ///
+    /// Nothing is read from the Keychain here — see `restoreUsername()`. The
+    /// dependencies are built inside the initialiser rather than as default arguments,
+    /// because a default argument is evaluated in the caller's isolation and these are
+    /// main-actor bound.
+    init(store: KeychainStore? = nil, client: GitHubContributionsClient? = nil) {
+        self.store = store ?? KeychainStore()
+        self.client = client ?? GitHubContributionsClient()
+    }
+
+    /// Whether the stored username has been looked up yet.
+    ///
+    /// The screen shows neither the display nor the prompt until it has, so a Keychain
+    /// read that has not happened yet is never mistaken for "no username stored".
+    private(set) var hasRestoredUsername = false
+
+    /// Reads the stored username, once.
+    ///
+    /// Done here rather than in `init` because the pager rebuilds every screen value on
+    /// each swipe, which would put a `SecItemCopyMatching` call on the main thread each
+    /// time and then discard the result.
+    func restoreUsername() {
+        guard !hasRestoredUsername else { return }
+        username = store.string(for: .gitHubUsername)
+        hasRestoredUsername = true
     }
 
     /// The headline: GitHub's exact count for today, or `nil` when there is no exact
