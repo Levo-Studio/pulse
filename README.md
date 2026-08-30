@@ -1,3 +1,5 @@
+<img src="docs/pulse-mark.svg" alt="Pulse" width="88">
+
 # Pulse
 
 A small ambient pixel display for iOS.
@@ -21,16 +23,14 @@ iPad. The reference is explicitly labelled `NO GLOW`: nothing in the app draws a
 shadow, a blur, or a bloom. It is meant to read like a piece of hardware, not
 like a screen.
 
-### Current state
-
-The Clock, Stopwatch and GitHub screens are implemented. **The Uptime screen is
-still a placeholder** — the page exists and is reachable by swipe, but it renders
-only the word `UPTIME` and has no data source wired up yet. See
-[Screens](#screens) below.
-
 ---
 
 ## Screens
+
+Each screen below is illustrated with a hand-authored animated SVG, drawn on the
+same pixel grid the app renders on — every glyph is a set of rectangles, not text
+in a font. They hold still on a resting frame if your system asks for reduced
+motion. They are illustrations of the layout and behaviour, not screen captures.
 
 ### Clock
 
@@ -52,7 +52,9 @@ The design reference shows a third line, `21°C`, below the date. **It is not
 implemented.** No weather source is specified anywhere in the brief and the app
 stores no weather credential, so the Clock screen ships as time plus date only.
 
-<!-- SCREENSHOT: Clock — replace this line with: ![Clock](docs/screenshots/clock.png) -->
+<p align="center">
+  <img src="docs/clock.svg" alt="Clock screen: the time advancing above the date" width="200">
+</p>
 
 ### Stopwatch
 
@@ -76,7 +78,9 @@ The state itself lives above the pager, in the app entry point, and is passed do
 through the environment — `TabView` is free to tear a page down when it scrolls
 off-screen, so nothing that must survive paging may be stored inside a page.
 
-<!-- SCREENSHOT: Stopwatch — replace this line with: ![Stopwatch](docs/screenshots/stopwatch.png) -->
+<p align="center">
+  <img src="docs/stopwatch.svg" alt="Stopwatch screen: the seconds counting up while it runs" width="200">
+</p>
 
 ### GitHub
 
@@ -105,22 +109,61 @@ implemented.** The public contributions page exposes per-day totals only, never
 commit timestamps, and Pulse stores no GitHub token that would let it ask for
 more. The slot that line occupies is used for the status line described above.
 
-<!-- SCREENSHOT: GitHub — replace this line with: ![GitHub](docs/screenshots/github.png) -->
+<p align="center">
+  <img src="docs/github.svg" alt="GitHub screen: the contribution heatmap filling in and today's commit count landing" width="200">
+</p>
 
 ### Uptime
 
-**Not implemented yet.** The screen is reachable as the fourth page and currently
-renders only the word `UPTIME` on the black field. There is no uptime client, no
-model, and no service list in the code.
+A `LAST CHECK` time and a `NEXT REFRESH` countdown at the top, then the list of
+Levo Studio services — each row a service name against a square status dot, with
+a hairline separator beneath it. Green is operational, amber degraded, red down,
+and grey means no usable state was reported. The list scrolls if it is longer
+than the frame.
 
-As designed, it will show a list of Levo Studio services, each with a square
-status dot (green operational, amber degraded, red down, grey unknown), a
-`LAST CHECK` time and a client-side `NEXT REFRESH` countdown, polling every 20
-seconds and only while the screen is visible. It will ask for an API key on first
-use and store it in the Keychain — the `KeychainStore` already reserves a slot for
-that key, but nothing writes to it yet.
+On first open the screen asks for your own uptime API key. The field is masked,
+the value goes straight to the **Keychain** and is never held anywhere else, and
+the prompt says so. The list then refreshes every 20 seconds — but only while
+this screen is the active page and the app is in the foreground.
 
-<!-- SCREENSHOT: Uptime — replace this line with: ![Uptime](docs/screenshots/uptime.png) -->
+Both the countdown and the poll schedule are derived from the timestamp of the
+last attempt rather than from an accumulating counter, so paging away for a
+minute and coming back triggers one refresh rather than replaying missed ticks.
+The countdown is computed entirely client-side.
+
+Failures are reported as what they were, in a line under the countdown:
+`CONNECTION FAILED`, `SERVER ERROR: 500`, `UNREADABLE RESPONSE`. A `401`
+re-prompts for the key, but **does not delete the stored one** — it may be the
+user's only copy of a long opaque token, and a single transient `401` during a
+deploy must not destroy it; the item is overwritten only when a new value is
+saved. A `403` is deliberately not treated as a rejected key: it means
+authenticated but not permitted, so re-typing the same key would loop. Every
+other failure leaves the previous list on screen and schedules the next attempt
+normally, so a flapping API is not hammered.
+
+Long service names are shortened rather than allowed to push the status dot off
+the edge. The character budget is computed against the widest advance in
+Silkscreen — the face is not fixed-pitch — so a name made entirely of wide
+glyphs still cannot overrun.
+
+> **The response schema of the uptime endpoint is unverified.** It could only be
+> probed without a key, which answers
+> `401 {"error":"Unauthorized","code":"UNAUTHORIZED"}`, so no successful body has
+> ever been observed. `UptimeResponseDecoder` is therefore deliberately tolerant,
+> and every assumption is collected in that one type: the list may be top-level or
+> wrapped under one of several envelope keys; the name and state are read from the
+> first matching key out of a candidate list; an unrecognised state token becomes
+> `unknown` rather than an error. Numeric status codes are **not** interpreted at
+> all — they are not standardised across uptime products, and reading `1` as "up"
+> could paint a down service green. A non-empty list none of whose entries yielded
+> a row is raised as an error rather than returned as an empty list, so an
+> unrecognised name key surfaces as `UNREADABLE RESPONSE` instead of silently
+> blanking the screen while the countdown keeps ticking. Once the real shape is
+> known this is a one-line correction.
+
+<p align="center">
+  <img src="docs/uptime.svg" alt="Uptime screen: service status resolving with the refresh countdown ticking down" width="200">
+</p>
 
 ---
 
@@ -143,8 +186,24 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 
 Or just open `Pulse.xcodeproj` and run.
 
-There is currently **no test target** in the project — `xcodebuild test` has
-nothing to run.
+### Test
+
+There is a `PulseTests` unit-test target, wired into a committed shared `Pulse`
+scheme, so it runs from a clean checkout with no scheme setup:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcodebuild test -project Pulse.xcodeproj -scheme Pulse \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
+
+22 tests in 3 suites, written with Swift Testing. They cover the uptime response
+decoder against the shapes it might be handed, the row-truncation arithmetic, and
+the model's failure paths — a rejected key re-prompting without deleting the
+stored one, a `403` not being mistaken for a rejected key, and a server error
+being reported as itself rather than as a connection failure. Nothing in the
+suite touches the network or the user's own Keychain items; the store and the API
+client are injected.
 
 ### First use
 
@@ -156,8 +215,9 @@ device, once:
   handle; only the syntax is validated locally (1–39 ASCII letters, digits and
   hyphens, not leading or trailing). It is stored in the **Keychain**, and can be
   changed later by tapping the username in the header.
-- **Uptime screen** — will ask for an API key on first open, also stored in the
-  **Keychain**. Not yet wired up; see above.
+- **Uptime screen** — asks for an API key on first open, in a masked field. It is
+  stored in the **Keychain** and is never logged, never held in the model, and
+  never included in an error message.
 
 Neither value is ever written to `UserDefaults`, to a plist, or to source. Both
 are stored under the app's bundle identifier with
@@ -173,13 +233,15 @@ split between them is enforced:
 
 | Directory | Contents |
 |---|---|
-| `Models/` | Value types only, **no I/O**. `ClockReading` (two formatted strings), `StopwatchState` (start timestamp plus accumulated interval), `ContributionDay` / `ContributionCalendar` / `ContributionIntensity`. |
-| `Services/` | Networking, Keychain, parsing, timers. `GitHubContributionsClient`, `GitHubContributionsParser`, `KeychainStore`, `ClockTicker`. Nothing here imports SwiftUI views. |
+| `Models/` | Value types only, **no I/O**. `ClockReading` (two formatted strings), `StopwatchState` (start timestamp plus accumulated interval), `ContributionDay` / `ContributionCalendar` / `ContributionIntensity`, `UptimeService` / `UptimeStatus` and the `UptimeResponseDecoder` that builds them. |
+| `Services/` | Networking, Keychain, parsing, timers. `GitHubContributionsClient`, `GitHubContributionsParser`, `UptimeAPIClient`, `KeychainStore`, `ClockTicker`. Nothing here imports SwiftUI views. |
 | `PixelRendering/` | The shared display vocabulary: `PixelFont` (font registration and lookup), `PixelTheme` (the palette), `PixelLabel`, `PixelMetrics`, `ContributionHeatmapGrid`. |
 | `Views/` | `PulsePager` plus one file per screen under `Views/Screens/`. |
 
 `design/` holds the design reference and its runtime. It is read-only as far as
-app work is concerned — never edited to make an implementation match.
+app work is concerned — never edited to make an implementation match. `docs/`
+holds the logo and the animated illustrations used by this README, and nothing
+the app itself ships.
 
 Because the project uses file-system synchronized groups, a new file dropped
 anywhere under `Pulse/` is picked up automatically; `project.pbxproj` does not
@@ -194,15 +256,24 @@ work.
 
 This is the mechanism every screen with a timer or a network call is built on:
 `ClockScreen` starts and stops its ticker on it, `StopwatchScreen` keys its redraw
-loop on it (combined with `scenePhase`), and `GitHubScreen` keys its polling
-`.task(id:)` on it, so paging away cancels the poll loop rather than leaving the
-network open behind a screen nobody is looking at. When you add a fifth screen
-that talks to anything, gate it the same way.
+loop on it (combined with `scenePhase`), and both network screens key their
+polling `.task(id:)` on it — `GitHubScreen` on the active screen plus the stored
+username, `UptimeScreen` on the active screen plus `scenePhase` and whether a key
+is present. Paging away cancels the poll loop rather than leaving the network open
+behind a screen nobody is looking at. When you add a fifth screen that talks to
+anything, gate it the same way.
 
 The counterpart rule: **screens must not assume they stay alive off-screen.**
 `TabView` may tear a page down. Anything that has to survive paging is either
-derived from a timestamp (the stopwatch) or held above the pager and injected
-(the `StopwatchState` instance, owned by `PulseApp`).
+derived from a timestamp (the stopwatch's elapsed time, the uptime countdown and
+poll schedule) or held above the pager and injected (the `StopwatchState`
+instance, owned by `PulseApp`).
+
+One Swift detail worth knowing before you add a service: the project builds with
+`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. The uptime client, its models and its
+decoder are therefore declared `nonisolated`, so the request and the response
+decode do not run on the main actor behind the display. New networking and parsing
+types should do the same.
 
 ### Everything is scaled, nothing is hardcoded
 
