@@ -114,16 +114,29 @@ public struct PixelCredentialField: View {
     private var input: some View {
         if privacy == .secret, !isRevealed {
             SecureField("", text: text)
-                .textContentType(.password)
+                .textContentType(Self.contentType(for: privacy))
                 .modifier(CredentialInputStyle())
                 .focused(isFocused)
                 .onSubmit(onSubmit)
         } else {
             TextField("", text: text)
-                .textContentType(privacy == .secret ? .password : .username)
+                .textContentType(Self.contentType(for: privacy))
                 .modifier(CredentialInputStyle())
                 .focused(isFocused)
                 .onSubmit(onSubmit)
+        }
+    }
+
+    /// The AutoFill role of the field, or `nil` where offering one would be wrong.
+    ///
+    /// A secret gets none. `.password` hands the field to iCloud Keychain, which
+    /// syncs to Apple's servers — the screen promises the value is stored in the
+    /// device Keychain only, and the project rules keep every credential there. A
+    /// username is not a credential, so AutoFill there is a plain convenience.
+    private static func contentType(for privacy: Privacy) -> UITextContentType? {
+        switch privacy {
+        case .secret: nil
+        case .plain: .username
         }
     }
 
