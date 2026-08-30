@@ -80,7 +80,8 @@ Type scale, at the reference frame width of 360 pt:
 
 | Element | Size | Letter spacing |
 |---|---|---|
-| Clock time | 70 | 2 |
+| Clock time, `HH:mm` | 70 | 2 |
+| Clock time, `HH:mm:ss` | 48 | 2 |
 | Clock date | 16 | 5 |
 | Clock temperature | 16 | 5 |
 | Stopwatch time | 48 | 2 |
@@ -135,6 +136,20 @@ Carry these forward; do not silently resolve them.
   deviation, requested explicitly by the repository owner** — not an oversight and not a
   transcription error. Do not "correct" it back to `HH:MM`. The one-second ticker behind
   it runs only while the screen is visible and the app is foregrounded.
+- The Clock's `HH:mm:ss` readout is set at **48**, not the reference's 70. This is forced,
+  not a preference: measured from the bundled face, Silkscreen advances its wide digits
+  0.75 em and its colon 0.375 em, so `HH:mm:ss` at 70 is **383.5** reference units against
+  a content width of **308** — the 360 unit frame less 26 units of padding either side,
+  which is also the narrowest budget any supported display offers. It overruns by 75.5
+  units and `PixelLabel` neither wraps nor compresses, so it would run off both edges.
+  48 is **the size the reference itself gives its own eight-character readout**, the
+  stopwatch's `00:00:00`, so the two agree and the number is the design's rather than an
+  invention; it measures 268. The `HH:mm` readout keeps the reference's 70 untouched.
+  Sizes in the low fifties also fit arithmetically — the ceiling is 55.6 — and were not
+  used because none of them appears in the design and the largest scrape the limit.
+  The advance table lives in `ClockTimeMetrics` and is checked against the bundled font
+  through Core Text, not against hardcoded numbers, so it cannot quietly describe a font
+  the app does not ship.
 - The frames are drawn with a `7 px #1B1D1E` rounded border. That is device-bezel chrome in
   the canvas mock, not app UI. Do not draw a border inside the app.
 
