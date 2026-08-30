@@ -2,8 +2,9 @@ import SwiftUI
 
 /// Pulse — an ambient pixel display.
 ///
-/// Four full-screen views the user pages through: clock, stopwatch, GitHub
-/// contributions, and Levo Studio service uptime. The app is dark-mode only.
+/// Five full-screen views the user pages through: clock, stopwatch, GitHub
+/// contributions, Levo Studio service uptime, and the settings holding the stored
+/// credentials and the clock's display preferences. The app is dark-mode only.
 @main
 struct PulseApp: App {
 
