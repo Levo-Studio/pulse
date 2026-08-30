@@ -139,13 +139,16 @@ nonisolated public enum UptimeResponseDecoder {
         // raised instead: the caller keeps the previous list and reports the response
         // as malformed. An API that genuinely returns no services still sends an
         // empty list, which stays valid and empty.
-        guard !entries.isEmpty, services.isEmpty else { return services }
-        throw DecodingError.dataCorrupted(
-            DecodingError.Context(
-                codingPath: [],
-                debugDescription: "No entry in the response carried a readable service name"
+        if !entries.isEmpty, services.isEmpty {
+            throw DecodingError.dataCorrupted(
+                DecodingError.Context(
+                    codingPath: [],
+                    debugDescription: "No entry in the response carried a readable service name"
+                )
             )
-        )
+        }
+
+        return services
     }
 
     /// The number of wrapper objects `list(in:)` will look through before giving up.
