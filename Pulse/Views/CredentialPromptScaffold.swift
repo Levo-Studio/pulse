@@ -252,3 +252,53 @@ private struct Entrance: ViewModifier {
             )
     }
 }
+
+
+extension View {
+
+    /// Drops the prompt's focus once the pager has moved to another screen.
+    ///
+    /// A prompt takes focus when it appears, and the keyboard that raises belongs to
+    /// the window rather than to the page. Swiping to the next screen therefore leaves
+    /// the keyboard up — and `PulsePager` deliberately does not ignore the `.keyboard`
+    /// region, so the inset it claims is applied to whatever screen the user landed on.
+    /// The keyboard is not drawn there, so nothing announces the missing height; the
+    /// arriving screen is simply shorter than the display it is on.
+    ///
+    /// Every screen paid a little for this — a centred layout recentres into the top
+    /// half — and the settings screen pays a lot, because its content is a list that
+    /// fills the height: its last row and the hint below it were pushed out of the
+    /// frame on the default first-run path, where no key is stored, the uptime screen
+    /// prompts for one and the next swipe lands on settings.
+    ///
+    /// Releasing focus fixes that at the source, for every screen, rather than teaching
+    /// one screen to ignore an inset it should never have been given.
+    ///
+    /// - Parameters:
+    ///   - owner: The screen this prompt belongs to. The settings screen hosts the same
+    ///     prompts as the GitHub and uptime screens, so a prompt cannot infer which
+    ///     page it is on.
+    ///   - isFocused: The prompt's focus binding.
+    public func releasesFocusWhenPagedAway(
+        from owner: PulseScreen,
+        isFocused: FocusState<Bool>.Binding
+    ) -> some View {
+        modifier(PagedAwayFocusRelease(owner: owner, isFocused: isFocused))
+    }
+}
+
+/// The implementation of `releasesFocusWhenPagedAway(from:isFocused:)`.
+private struct PagedAwayFocusRelease: ViewModifier {
+
+    let owner: PulseScreen
+    let isFocused: FocusState<Bool>.Binding
+
+    @Environment(\.activeScreen) private var activeScreen
+
+    func body(content: Content) -> some View {
+        content.onChange(of: activeScreen) {
+            guard activeScreen != owner else { return }
+            isFocused.wrappedValue = false
+        }
+    }
+}

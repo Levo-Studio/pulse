@@ -46,6 +46,7 @@ public struct GitHubScreen: View {
                 display(username: username)
             } else {
                 GitHubUsernamePrompt(
+                    owner: .gitHub,
                     canCancel: model.username != nil,
                     onSubmit: { name in
                         guard model.save(username: name) else { return false }

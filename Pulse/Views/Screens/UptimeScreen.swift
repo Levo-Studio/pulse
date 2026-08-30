@@ -105,6 +105,7 @@ public struct UptimeScreen: View {
 
     private var keyPrompt: some View {
         UptimeKeyPrompt(
+            owner: .uptime,
             notice: model.promptNotice,
             canCancel: model.canCancelKeyChange,
             submit: { model.store(key: $0) },
@@ -232,6 +233,10 @@ struct UptimeKeyPrompt: View {
         case replacing
     }
 
+    /// The screen this prompt is drawn on. The settings screen shows the same
+    /// prompt, and the focus release has to know which page it is watching for.
+    let owner: PulseScreen
+
     let notice: Notice
     let canCancel: Bool
     let submit: (String) -> Bool
@@ -266,6 +271,10 @@ struct UptimeKeyPrompt: View {
             )
         }
         .onAppear { isFocused = true }
+        // The keyboard this prompt raises belongs to the window, not to the page, so
+        // without this it stays up over the next screen and holds a safe-area inset
+        // there. See `releasesFocusWhenPagedAway(from:isFocused:)`.
+        .releasesFocusWhenPagedAway(from: owner, isFocused: $isFocused)
     }
 
     private var trimmedKey: String {

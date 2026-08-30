@@ -12,6 +12,7 @@ import SwiftUI
 /// `CredentialPromptScaffold`, which is shared with the uptime key prompt.
 public struct GitHubUsernamePrompt: View {
 
+    private let owner: PulseScreen
     private let canCancel: Bool
     private let onSubmit: (String) -> Bool
     private let onCancel: () -> Void
@@ -37,16 +38,21 @@ public struct GitHubUsernamePrompt: View {
     /// new value is saved.
     ///
     /// - Parameters:
+    ///   - owner: The screen this prompt is drawn on. The settings screen shows the
+    ///     same prompt, and the focus release has to know which page it is watching
+    ///     for.
     ///   - canCancel: Whether the user may dismiss without entering a name. False on
     ///     first use, when the screen has nothing to fall back to.
     ///   - onSubmit: Called with a syntactically valid username. Returns `true` once
     ///     the value has been stored, which closes the prompt.
     ///   - onCancel: Called when the user dismisses the prompt.
     public init(
+        owner: PulseScreen,
         canCancel: Bool,
         onSubmit: @escaping (String) -> Bool,
         onCancel: @escaping () -> Void = {}
     ) {
+        self.owner = owner
         self.canCancel = canCancel
         self.onSubmit = onSubmit
         self.onCancel = onCancel
@@ -78,6 +84,10 @@ public struct GitHubUsernamePrompt: View {
             )
         }
         .onAppear { isFocused = true }
+        // The keyboard this prompt raises belongs to the window, not to the page, so
+        // without this it stays up over the next screen and holds a safe-area inset
+        // there. See `releasesFocusWhenPagedAway(from:isFocused:)`.
+        .releasesFocusWhenPagedAway(from: owner, isFocused: $isFocused)
         .onChange(of: text) { _, _ in notice = nil }
     }
 
@@ -108,5 +118,5 @@ public struct GitHubUsernamePrompt: View {
 }
 
 #Preview {
-    GitHubUsernamePrompt(canCancel: false, onSubmit: { _ in true })
+    GitHubUsernamePrompt(owner: .gitHub, canCancel: false, onSubmit: { _ in true })
 }
