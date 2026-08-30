@@ -51,25 +51,35 @@ public struct SettingsScreen: View {
                 rows
             case .uptimeKey:
                 UptimeKeyPrompt(
-                    notice: model.isUptimeKeyStored ? .replacing : .firstUse,
+                    owner: .settings,
+                    // Held by the model rather than derived here, so a Keychain write
+                    // that is refused can say so. Computed inline it could only ever be
+                    // `replacing` or `firstUse`, and a failed save would leave the
+                    // submit control looking like it had done nothing.
+                    notice: model.uptimeNotice,
                     canCancel: true,
                     submit: { model.save(uptimeKey: $0) },
                     cancel: { model.cancelEditing() }
                 )
             case .gitHubUsername:
                 GitHubUsernamePrompt(
+                    owner: .settings,
                     canCancel: true,
                     onSubmit: { model.save(username: $0) },
                     onCancel: { model.cancelEditing() }
                 )
             }
         }
-        // The Keychain is read once as the page is built and again whenever the screen
-        // is paged into view, so a credential changed on the GitHub or uptime screen
-        // is current here. Both are single queries on arrival: this screen never polls
-        // and does no work at all while it is off-screen. The read on appear is what
-        // keeps a row from showing `NOT SET` for the frame between the page being
-        // rendered behind the swipe and the swipe being committed.
+        // The Keychain is read when the page is built and again whenever the screen is
+        // paged into view, so a credential changed on the GitHub or uptime screen is
+        // current here. Both are single queries; this screen never polls and holds
+        // nothing open.
+        //
+        // The read on appear does happen off-screen — `TabView` builds a page as it
+        // comes into reach, before the swipe is committed — and that is the point of
+        // it: without it a row would draw `NOT SET` for the frames the page is visible
+        // behind the user's finger. One `SecItemCopyMatching` per page build is not a
+        // cost worth deferring.
         .onAppear { model.readStoredState() }
         .task(id: activeScreen) {
             guard activeScreen == .settings else { return }
@@ -185,7 +195,11 @@ struct SettingsRow: View {
             HStack(alignment: .center, spacing: metrics(12)) {
                 VStack(alignment: .leading, spacing: metrics(6)) {
                     PixelLabel(name, size: 13, tracking: 2, color: PixelTheme.bright)
-                    PixelLabel(detail, size: 10, tracking: 2, color: PixelTheme.muted)
+                    // The uptime list's own meta colour, not one step brighter. At
+                    // `muted` the values read louder than the section headings above
+                    // them, which is neither the row this borrows nor the calm this
+                    // screen is for.
+                    PixelLabel(detail, size: 10, tracking: 2, color: PixelTheme.faint)
                 }
                 Spacer(minLength: metrics(12))
                 PixelCell(
@@ -290,6 +304,17 @@ public final class SettingsModel {
     /// The prompt the user has opened, or `nil` when the row list is showing.
     public private(set) var editing: Editing?
 
+    /// Why the uptime key prompt is on screen.
+    ///
+    /// Owned here rather than derived in the view, because it has to be able to say
+    /// that a write was refused. The GitHub prompt needs no equivalent: it owns its
+    /// own notice and reports a refused write itself.
+    ///
+    /// Internal rather than public: `UptimeKeyPrompt` is internal, and widening this
+    /// type's surface to carry it would say the notice is something outside the app
+    /// can act on, which it is not.
+    private(set) var uptimeNotice: UptimeKeyPrompt.Notice = .firstUse
+
     @ObservationIgnored private let keychain: KeychainStore
 
     /// Creates the model.
@@ -322,12 +347,16 @@ public final class SettingsModel {
 
     /// Opens a prompt. Nothing is written and nothing stored is touched.
     public func beginEditing(_ target: Editing) {
+        if target == .uptimeKey {
+            uptimeNotice = isUptimeKeyStored ? .replacing : .firstUse
+        }
         editing = target
     }
 
     /// Closes a prompt without writing anything.
     public func cancelEditing() {
         editing = nil
+        uptimeNotice = .firstUse
     }
 
     /// Stores a new uptime API key, replacing any already there.
@@ -339,8 +368,18 @@ public final class SettingsModel {
     @discardableResult
     public func save(uptimeKey key: String) -> Bool {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, keychain.set(trimmed, for: .uptimeAPIKey) else { return false }
+        guard !trimmed.isEmpty else { return false }
+        guard keychain.set(trimmed, for: .uptimeAPIKey) else {
+            // Surfaced rather than swallowed: the prompt keeps what was typed and says
+            // what went wrong, instead of leaving a submit control that appears to do
+            // nothing. This is the uptime screen's own behaviour, and the route a
+            // credential is changed through must not decide whether failure is
+            // reported.
+            uptimeNotice = .storageFailed
+            return false
+        }
         isUptimeKeyStored = true
+        uptimeNotice = .firstUse
         editing = nil
         return true
     }
