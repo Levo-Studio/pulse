@@ -83,7 +83,11 @@ public struct SettingsScreen: View {
         PixelScreenBackdrop(placement: .topInset, alignment: .leading, spacing: 0) {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    PixelLabel("SETTINGS", size: 13, tracking: 4, color: PixelTheme.bright)
+                    // Size 16 is the reference's own secondary display size — the
+                    // clock's date and temperature — and in the primary colour it
+                    // reads as the screen's heading rather than as a row whose value
+                    // is missing, which is how it read at the rows' own size 13.
+                    PixelLabel("SETTINGS", size: 16, tracking: 5, color: PixelTheme.primary)
 
                     section("CREDENTIALS")
 
