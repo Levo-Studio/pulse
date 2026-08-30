@@ -5,7 +5,8 @@ import SwiftUI
 /// A centred `HH:MM:SS` readout with the time of day beneath it, matching frame
 /// `02 STOPWATCH` in `design/Pulse.dc.html`. Double-tapping anywhere on the readout
 /// starts and stops the stopwatch, triple-tapping resets it to zero, and a single tap
-/// does nothing.
+/// does nothing. Telling the two sequences apart costs the double tap a short wait;
+/// see `registerTap()`.
 ///
 /// The screen holds no stopwatch state of its own. It reads `StopwatchState` from
 /// the environment, which lives above the pager, and only drives the redraw: the
@@ -29,6 +30,19 @@ public struct StopwatchScreen: View {
     /// How long the readout takes to come back up to full after the dip.
     private static let resetRecoveryDuration: TimeInterval = 0.4
 
+    /// Number of taps that starts and stops the stopwatch.
+    private static let toggleTapCount = 2
+
+    /// Number of taps that resets the stopwatch to zero.
+    private static let resetTapCount = 3
+
+    /// How long the screen waits after a tap before deciding no further tap is
+    /// coming. It sets the cost of telling a double tap from a triple one: only the
+    /// double tap pays it, and it has to be long enough that an ordinary triple tap
+    /// still lands inside it. Close to the system's own multi-tap interval, so a tap
+    /// rhythm that works elsewhere on iOS works here.
+    private static let tapWindow: Duration = .milliseconds(300)
+
     /// Formats the time-of-day readout. Fixed to `en_US_POSIX` so the 24-hour
     /// pattern in the reference is honoured regardless of the device's locale or its
     /// 12-hour clock setting.
@@ -51,6 +65,12 @@ public struct StopwatchScreen: View {
     /// The readout's opacity. Held at `1` except during the brief dip that
     /// acknowledges a reset.
     @State private var readoutOpacity: Double = 1
+
+    /// Taps seen so far in the current sequence.
+    @State private var tapCount = 0
+
+    /// Closes the current tap sequence once `tapWindow` passes with no further tap.
+    @State private var tapWindowTask: Task<Void, Never>?
 
     /// Creates the screen.
     public init() {}
@@ -79,19 +99,51 @@ public struct StopwatchScreen: View {
             .padding(.top, metrics(2))
         }
         .contentShape(Rectangle())
-        .gesture(
-            // The two gestures are composed rather than stacked as two separate
-            // `onTapGesture` modifiers. Stacked, the two-tap recogniser wins the
-            // moment the second tap lands and the third tap is never seen, so the
-            // reset would either never fire or fire after an unwanted toggle.
-            // `exclusively(before:)` attempts the longer gesture first and only falls
-            // through to the shorter one once the third tap has failed to arrive.
-            TapGesture(count: 3)
-                .onEnded { performReset() }
-                .exclusively(before: TapGesture(count: 2).onEnded { stopwatch.toggle() })
-        )
+        .onTapGesture { registerTap() }
+        .onDisappear {
+            tapWindowTask?.cancel()
+            tapCount = 0
+        }
         .task(id: tickIdentity) {
             await runTickLoop()
+        }
+    }
+
+    /// Folds one tap into the current sequence and acts once the sequence closes.
+    ///
+    /// The two counts are resolved here rather than by two tap gestures. Two
+    /// recognisers — stacked as separate modifiers or composed with
+    /// `exclusively(before:)` — both let the two-tap one succeed the instant the
+    /// second tap lands, which starts the stopwatch underneath a triple tap that was
+    /// meant to reset it. Counting the taps explicitly is the only arrangement that
+    /// can tell the two apart, because it is the only one that waits.
+    ///
+    /// Three taps is the longest sequence the screen recognises, so a reset fires as
+    /// soon as the third tap lands. Only the shorter sequences wait out the window,
+    /// and only the two-tap one does anything at the end of it; a single tap is
+    /// deliberately inert.
+    private func registerTap() {
+        tapWindowTask?.cancel()
+        tapCount += 1
+
+        guard tapCount < Self.resetTapCount else {
+            tapCount = 0
+            performReset()
+            return
+        }
+
+        tapWindowTask = Task {
+            do {
+                try await Task.sleep(for: Self.tapWindow)
+            } catch {
+                return
+            }
+
+            let taps = tapCount
+            tapCount = 0
+            if taps == Self.toggleTapCount {
+                stopwatch.toggle()
+            }
         }
     }
 
