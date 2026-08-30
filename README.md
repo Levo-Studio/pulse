@@ -212,7 +212,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
   -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
-76 tests in 12 suites, written with Swift Testing. They cover the GitHub
+141 tests in 21 suites, written with Swift Testing. They cover the GitHub
 contributions parser against the markup shapes it might be handed, the pixel
 label's line box, the uptime response decoder, the row-truncation arithmetic, and
 the uptime model's failure paths — a rejected key re-prompting without deleting
