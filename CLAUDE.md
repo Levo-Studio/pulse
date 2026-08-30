@@ -210,9 +210,17 @@ is at `data.projects`; the calling key's metadata is at `data.key`.
 
 - Decoding is plain `Codable` against this shape. Only the fields the screen draws are
   decoded — `name`, `currentStatus`, `lastCheckedAt` — and every other field is ignored
-  rather than rejected, so the endpoint can grow without breaking the app. A **missing
-  `data` or `projects` member is an error**, not an empty result: an empty list and a
-  response that is not this shape must never look the same on screen.
+  rather than rejected, so the endpoint can grow without breaking the app.
+- Strictness follows one rule: **a field the screen cannot render without is required; a
+  field it can live without degrades rather than failing the response.**
+  - Strict: `data`, `projects`, and each project's `name`. A **missing `data` or
+    `projects` member is an error**, not an empty result — an empty list and a response
+    that is not this shape must never look the same on screen. A project with no name has
+    no row to draw.
+  - Lenient: `currentStatus` degrades to `unknown`, and `lastCheckedAt` — absent,
+    misspelled, or sent as the wrong type — degrades to no timestamp for that project.
+    The row still draws with its status. Failing the whole response over a field no row
+    needs would blank the screen for nothing.
 - `data.key.keyPrefix` is **deliberately not decoded.** It is a fragment of the user's own
   bearer token and the app has no use for it; a value never held cannot be leaked.
 - `currentStatus` is one of **`up`, `slow`, `degraded`, `down`, `unknown`**. Only `down`
@@ -230,9 +238,12 @@ is at `data.projects`; the calling key's metadata is at `data.key`.
   mapping lives only in `UptimeStatus.init(apiValue:)`.
 - `LAST CHECK` is drawn from the newest `lastCheckedAt` in the response — the API's own
   clock, when the states on screen were actually observed — not from when the app last
-  fetched. With no timestamp in the response the line stays as dashes; the device's fetch
-  time is never substituted for it, because the two are different quantities and the line
-  carries no label distinguishing them.
+  fetched. With no usable timestamp in the response the line stays as dashes; the device's
+  fetch time is never substituted for it, because the two are different quantities and the
+  line carries no label distinguishing them.
+- A `lastCheckedAt` **ahead of the device clock is drawn as sent, not clamped to now.**
+  The line reports the API's clock, and rewriting a skewed timestamp into a plausible one
+  would hide the skew rather than show it.
 
 Errors:
 
