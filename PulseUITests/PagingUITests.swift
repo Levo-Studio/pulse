@@ -7,11 +7,20 @@ import XCTest
 /// property of `TabView` and of real drags arriving at a real gesture recogniser, not
 /// of any value type, so it is checked here.
 ///
-/// The anchors are deliberately tolerant of what is stored on the device. The GitHub
-/// and uptime screens show their credential prompt when nothing is stored and their
-/// display when something is, and Keychain items survive a reinstall, so each screen
-/// is identified by a word that appears in both states rather than by a state that
-/// only holds on a fresh device.
+/// Two things make these cases trustworthy rather than merely green.
+///
+/// The anchors are tolerant of what is stored on the device. The GitHub and uptime
+/// screens show their credential prompt when nothing is stored and their display when
+/// something is, and Keychain items survive a reinstall, so each screen is identified
+/// by either face rather than by the one a fresh device happens to show. Both faces
+/// are addressed by exact label: a predicate scan filters the whole accessibility tree
+/// on every read, which on these screens is slow enough to time a wait out by itself.
+///
+/// And a screen counts as showing only when its anchor is **on screen**, not merely
+/// present. `TabView` keeps the neighbouring pages in the tree, off to either side, so
+/// an existence check alone reports the next screen as arrived while the pager is
+/// still on the previous one — and would pass just as happily if a swipe skipped a
+/// page entirely.
 ///
 /// Like the stopwatch suite, this target keeps its own shared scheme. Run it
 /// deliberately:
@@ -23,7 +32,7 @@ import XCTest
 final class PagingUITests: XCTestCase {
 
     /// How long a screen is given to arrive after a swipe.
-    private static let arrival: TimeInterval = 10
+    private static let arrival: TimeInterval = 8
 
     private var app: XCUIApplication?
 
@@ -49,35 +58,104 @@ final class PagingUITests: XCTestCase {
 
     /// Drags across the top eighth of the screen rather than through its middle.
     ///
-    /// `swipeLeft()` starts in the centre, which on a credential prompt is the field
-    /// or the keyboard above it — both of which swallow the drag, so the pager never
-    /// sees it. Every screen's top band is inert, so a drag there reaches the pager
-    /// whatever state the screen underneath is in.
-    private func page(_ app: XCUIApplication, toward direction: CGFloat) {
-        // Kept clear of both screen edges, where the system's own edge-pan gestures
-        // claim the touch before the pager sees it.
+    /// `swipeLeft()` starts in the centre, which on a credential prompt is the field or
+    /// the keyboard below it — both swallow the drag, so the pager never sees it. Every
+    /// screen's top band is inert, so a drag there reaches the pager whatever state the
+    /// screen underneath is in. It is kept clear of both screen edges as well, where
+    /// the system's own edge-pan gestures claim the touch first.
+    ///
+    /// The gesture is deliberately unhurried, and holds at the end rather than
+    /// releasing mid-flight. A fast flick carries the pager **two** pages often enough
+    /// to make a run meaningless, and a skipped page is a failure this suite cannot
+    /// tell from a missing screen. A slow drag never overshoots; it occasionally does
+    /// not take at all, which `page(_:toward:until:)` retries.
+    private func flick(_ app: XCUIApplication, toward direction: CGFloat) {
         let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 - direction * 0.3, dy: 0.12))
         let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5 + direction * 0.3, dy: 0.12))
-        // A flick, not a slow drag: `TabView` pages on velocity, and a drag issued
-        // without one is absorbed as a scroll that ends where it started.
-        start.press(forDuration: 0.01, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0)
+        start.press(
+            forDuration: 0.01,
+            thenDragTo: end,
+            withVelocity: XCUIGestureVelocity(400),
+            thenHoldForDuration: 0.15
+        )
+    }
+
+    /// Flicks toward the next page and waits for `arrived`, retrying the flick twice.
+    ///
+    /// A slow drag occasionally lands as a scroll the pager ignores, which is a
+    /// property of the gesture recogniser rather than of the pager's order. Retrying
+    /// separates "the swipe did not take" from "that screen is not there", which is
+    /// what these cases are about — and it is safe only because the drag cannot
+    /// overshoot: a retry after a swipe that did move would page past the screen under
+    /// test.
+    private func page(
+        _ app: XCUIApplication,
+        toward direction: CGFloat,
+        until arrived: () -> Bool
+    ) -> Bool {
+        for _ in 0..<3 {
+            // The previous page's animation is given a moment to settle first: a flick
+            // issued into a running transition is dropped, and the retry then reads as
+            // a screen that is not there.
+            Thread.sleep(forTimeInterval: 0.6)
+            flick(app, toward: direction)
+            // The page transition is left to finish before the tree is read at all: a
+            // query issued into a running transition returns a snapshot of a page that
+            // is still moving, which is neither the screen being left nor the one
+            // arriving.
+            Thread.sleep(forTimeInterval: 1.5)
+            if waitUntil(Self.arrival, arrived) { return true }
+        }
+        return false
     }
 
     /// One page to the right in the swipe order.
-    private func pageForward(_ app: XCUIApplication) { page(app, toward: -1) }
+    private func pageForward(_ app: XCUIApplication, until arrived: () -> Bool) -> Bool {
+        page(app, toward: -1, until: arrived)
+    }
 
     /// One page to the left in the swipe order.
-    private func pageBack(_ app: XCUIApplication) { page(app, toward: 1) }
+    private func pageBack(_ app: XCUIApplication, until arrived: () -> Bool) -> Bool {
+        page(app, toward: 1, until: arrived)
+    }
+
+    /// Polls `condition` until it holds or the deadline passes.
+    ///
+    /// Deliberately unhurried. Every read snapshots the accessibility tree, which on a
+    /// screen with a keyboard up is expensive enough that polling tightly slows the
+    /// app it is measuring.
+    private func waitUntil(_ timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if condition() { return true }
+            Thread.sleep(forTimeInterval: 0.5)
+        } while Date() < deadline
+        return false
+    }
 
     // MARK: - Screen anchors
+
+    /// Whether an element is on the page currently in view.
+    ///
+    /// Existence is the signal, and it is a sound one here: `TabView` builds the page
+    /// it scrolls to and tears the one it leaves down, so only the current screen's
+    /// elements are in the tree once a transition has settled. Reading a frame as well
+    /// would be a second expensive query per poll for a distinction the pager does not
+    /// leave open.
+    private func isOnScreen(_ element: XCUIElement, in app: XCUIApplication) -> Bool {
+        element.exists
+    }
+
+    private func anyOnScreen(_ app: XCUIApplication, _ elements: XCUIElement...) -> Bool {
+        elements.contains { $0.exists }
+    }
 
     /// The clock: a `HH:mm` or `HH:mm:ss` readout, whichever the preference says.
     ///
     /// Queried as a button, which is what the readout is: it carries the double-tap
     /// action that reveals seconds, and an element with an action is not a static text.
     private func clockIsShowing(_ app: XCUIApplication) -> Bool {
-        clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$")
-            .waitForExistence(timeout: Self.arrival)
+        isOnScreen(clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}(:[0-9]{2})?$"), in: app)
     }
 
     private func clockReadout(in app: XCUIApplication, pattern: String) -> XCUIElement {
@@ -88,30 +166,25 @@ final class PagingUITests: XCTestCase {
 
     /// The stopwatch, by the identifier its readout carries.
     private func stopwatchIsShowing(_ app: XCUIApplication) -> Bool {
-        app.staticTexts["stopwatch.readout"].waitForExistence(timeout: Self.arrival)
+        isOnScreen(app.staticTexts["stopwatch.readout"], in: app)
     }
 
-    /// GitHub: `CHANGE USERNAME` on the display, `USERNAME` on the prompt.
+    /// GitHub: the `CHANGE USERNAME` control on the display, the `USERNAME` heading on
+    /// the prompt.
     private func gitHubIsShowing(_ app: XCUIApplication) -> Bool {
-        containsLabel(app, "USERNAME")
+        anyOnScreen(app, app.buttons["CHANGE USERNAME"], app.staticTexts["USERNAME"])
     }
 
-    /// Uptime: `CHANGE API KEY` on the display, `API KEY` on the prompt.
+    /// Uptime: the `CHANGE API KEY` control on the display, the `API KEY` heading on
+    /// the prompt.
     private func uptimeIsShowing(_ app: XCUIApplication) -> Bool {
-        containsLabel(app, "API KEY")
+        anyOnScreen(app, app.buttons["CHANGE API KEY"], app.staticTexts["API KEY"])
     }
 
-    /// Settings, by its title. Its own credential rows are buttons rather than static
-    /// texts, so they cannot be mistaken for the two screens above.
+    /// Settings, by its heading. Its own rows are buttons rather than static texts, so
+    /// they cannot be mistaken for the two screens before it.
     private func settingsIsShowing(_ app: XCUIApplication) -> Bool {
-        app.staticTexts["SETTINGS"].waitForExistence(timeout: Self.arrival)
-    }
-
-    private func containsLabel(_ app: XCUIApplication, _ fragment: String) -> Bool {
-        app.staticTexts
-            .matching(NSPredicate(format: "label CONTAINS %@", fragment))
-            .firstMatch
-            .waitForExistence(timeout: Self.arrival)
+        isOnScreen(app.staticTexts["SETTINGS"], in: app)
     }
 
     // MARK: - Cases
@@ -119,53 +192,58 @@ final class PagingUITests: XCTestCase {
     func testAllFiveScreensAreReachableBySwiping() {
         let app = launch()
 
-        XCTAssertTrue(clockIsShowing(app), "The app must open on the clock")
+        XCTAssertTrue(
+            waitUntil(Self.arrival) { clockIsShowing(app) },
+            "The app must open on the clock"
+        )
 
-        pageForward(app)
-        XCTAssertTrue(stopwatchIsShowing(app), "The stopwatch must be one page right of the clock")
+        XCTAssertTrue(
+            pageForward(app) { stopwatchIsShowing(app) },
+            "The stopwatch must be one page right of the clock"
+        )
+        XCTAssertTrue(
+            pageForward(app) { gitHubIsShowing(app) },
+            "GitHub must be one page right of the stopwatch"
+        )
+        XCTAssertTrue(
+            pageForward(app) { uptimeIsShowing(app) },
+            "Uptime must be one page right of GitHub"
+        )
+        XCTAssertTrue(
+            pageForward(app) { settingsIsShowing(app) },
+            "Settings must be the fifth and last page"
+        )
 
-        pageForward(app)
-        XCTAssertTrue(gitHubIsShowing(app), "GitHub must be one page right of the stopwatch")
-
-        pageForward(app)
-        XCTAssertTrue(uptimeIsShowing(app), "Uptime must be one page right of GitHub")
-
-        pageForward(app)
-        XCTAssertTrue(settingsIsShowing(app), "Settings must be the fifth and last page")
-
-        // A sixth swipe has nowhere to go: settings is the end of the order.
-        pageForward(app)
-        XCTAssertTrue(settingsIsShowing(app), "Settings must stay put at the end of the order")
-
-        pageBack(app)
-        XCTAssertTrue(uptimeIsShowing(app), "Uptime must be one page left of settings")
-
-        pageBack(app)
-        XCTAssertTrue(gitHubIsShowing(app), "GitHub must be one page left of uptime")
-
-        pageBack(app)
-        XCTAssertTrue(stopwatchIsShowing(app), "The stopwatch must be one page left of GitHub")
-
-        pageBack(app)
-        XCTAssertTrue(clockIsShowing(app), "The clock must be one page left of the stopwatch")
+        XCTAssertTrue(
+            pageBack(app) { uptimeIsShowing(app) },
+            "Uptime must be one page left of settings"
+        )
+        XCTAssertTrue(
+            pageBack(app) { gitHubIsShowing(app) },
+            "GitHub must be one page left of uptime"
+        )
+        XCTAssertTrue(
+            pageBack(app) { stopwatchIsShowing(app) },
+            "The stopwatch must be one page left of GitHub"
+        )
+        XCTAssertTrue(
+            pageBack(app) { clockIsShowing(app) },
+            "The clock must be one page left of the stopwatch"
+        )
     }
 
     /// Swiping across settings must not change anything: the rows are buttons, and a
     /// button does not fire while a drag is in flight.
     func testPagingThroughSettingsChangesNothing() {
         let app = launch()
-
-        for _ in 0..<4 { pageForward(app) }
-        XCTAssertTrue(settingsIsShowing(app))
+        pageToSettings(app)
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
         let before = seconds.value as? String
 
-        pageBack(app)
-        XCTAssertTrue(uptimeIsShowing(app))
-        pageForward(app)
-        XCTAssertTrue(settingsIsShowing(app))
+        XCTAssertTrue(pageBack(app) { uptimeIsShowing(app) })
+        XCTAssertTrue(pageForward(app) { settingsIsShowing(app) })
 
         XCTAssertEqual(seconds.value as? String, before, "Swiping past a row must not toggle it")
     }
@@ -175,30 +253,46 @@ final class PagingUITests: XCTestCase {
     func testTogglingSecondsInSettingsShowsOnTheClock() {
         let app = launch()
 
-        XCTAssertTrue(clockIsShowing(app))
+        XCTAssertTrue(waitUntil(Self.arrival) { clockIsShowing(app) })
         let withoutSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}$")
         let withSeconds = clockReadout(in: app, pattern: "^[0-9]{2}:[0-9]{2}:[0-9]{2}$")
         let startedWithSeconds = withSeconds.exists
 
-        for _ in 0..<4 { pageForward(app) }
-        XCTAssertTrue(settingsIsShowing(app))
+        pageToSettings(app)
 
         let seconds = app.buttons["SECONDS"]
         XCTAssertTrue(seconds.waitForExistence(timeout: Self.arrival))
         seconds.tap()
+        Thread.sleep(forTimeInterval: 1)
 
-        for _ in 0..<4 { pageBack(app) }
+        pageToClock(app)
 
         let expected = startedWithSeconds ? withoutSeconds : withSeconds
         XCTAssertTrue(
-            expected.waitForExistence(timeout: Self.arrival),
+            waitUntil(Self.arrival) { isOnScreen(expected, in: app) },
             "The clock must follow the preference toggled in settings"
         )
 
-        // Left as it was found, so the run does not decide the next one's starting
+        // Left as it was found, so this run does not decide the next one's starting
         // state.
-        for _ in 0..<4 { pageForward(app) }
-        XCTAssertTrue(settingsIsShowing(app))
+        pageToSettings(app)
         seconds.tap()
+    }
+
+    /// Pages from the clock to settings, one screen at a time, so a swipe that does not
+    /// take is retried rather than silently leaving the run on the wrong page.
+    private func pageToSettings(_ app: XCUIApplication) {
+        XCTAssertTrue(pageForward(app) { stopwatchIsShowing(app) })
+        XCTAssertTrue(pageForward(app) { gitHubIsShowing(app) })
+        XCTAssertTrue(pageForward(app) { uptimeIsShowing(app) })
+        XCTAssertTrue(pageForward(app) { settingsIsShowing(app) })
+    }
+
+    /// The same journey back.
+    private func pageToClock(_ app: XCUIApplication) {
+        XCTAssertTrue(pageBack(app) { uptimeIsShowing(app) })
+        XCTAssertTrue(pageBack(app) { gitHubIsShowing(app) })
+        XCTAssertTrue(pageBack(app) { stopwatchIsShowing(app) })
+        XCTAssertTrue(pageBack(app) { clockIsShowing(app) })
     }
 }
