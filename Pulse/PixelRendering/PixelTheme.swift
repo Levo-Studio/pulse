@@ -12,6 +12,13 @@ public enum PixelTheme {
     /// The background of every screen.
     public static let background = Color(hex: 0x000000)
 
+    /// The surface of a credential entry field: one shade above the screen, so the
+    /// field reads as a field without a rounded iOS control behind it.
+    ///
+    /// The reference has no entry field to transcribe, so this is the most
+    /// conservative reading of its flat, near-black surfaces.
+    public static let inputSurface = Color(hex: 0x0C0C0C)
+
     // MARK: - Type
 
     /// Primary display type: clock time, stopwatch time, commit count.

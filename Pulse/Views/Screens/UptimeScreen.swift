@@ -20,7 +20,7 @@ public struct UptimeScreen: View {
 
     public var body: some View {
         Group {
-            if model.needsKey {
+            if model.isPromptVisible {
                 keyPrompt
             } else {
                 display
@@ -35,7 +35,7 @@ public struct UptimeScreen: View {
     /// Whether the poll loop should be running: this screen is in view, the app is
     /// in the foreground, and there is a key to authenticate with.
     private var isPolling: Bool {
-        activeScreen == .uptime && scenePhase == .active && !model.needsKey
+        activeScreen == .uptime && scenePhase == .active && !model.isPromptVisible
     }
 
     // MARK: - Service list
@@ -71,18 +71,38 @@ public struct UptimeScreen: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
             .padding(.top, metrics(54))
+
+            changeKeyAction
         }
+    }
+
+    /// The way back to the key prompt once a key is stored.
+    ///
+    /// Without it the only route to the prompt is a key the API has already rejected,
+    /// which leaves a user with a rotated key stuck. Kept at the foot of the screen in
+    /// the faintest colour so it never competes with the service list above it.
+    private var changeKeyAction: some View {
+        Button {
+            model.beginKeyChange()
+        } label: {
+            PixelLabel("CHANGE API KEY", size: 10, tracking: 3, color: PixelTheme.faint)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, metrics(20))
+        .padding(.bottom, metrics(16))
     }
 
     // MARK: - First-use key prompt
 
     private var keyPrompt: some View {
-        PixelScreenBackdrop(placement: .centred, alignment: .leading, spacing: 0) {
-            UptimeKeyPrompt(
-                notice: model.promptNotice,
-                submit: { model.store(key: $0) }
-            )
-        }
+        UptimeKeyPrompt(
+            notice: model.promptNotice,
+            canCancel: model.canCancelKeyChange,
+            submit: { model.store(key: $0) },
+            cancel: { model.cancelKeyChange() }
+        )
     }
 }
 
@@ -182,13 +202,14 @@ private struct UptimeRow: View {
 
 /// Asks the user for their own uptime API key.
 ///
-/// The design reference contains no onboarding frame, so this is built from the same
-/// palette and type scale as the rest of the screen rather than from a drawn source.
-/// The field is masked, the value goes straight to the Keychain, and it is never held
-/// anywhere else.
+/// The key is a long, case-sensitive, opaque bearer token, so the entered value is
+/// drawn in a monospaced system face by `PixelCredentialField` while every label
+/// around it stays in the pixel face. It is masked by default with an explicit
+/// reveal, and the typed value is handed straight to the Keychain and dropped; it is
+/// never logged and never held anywhere else.
 struct UptimeKeyPrompt: View {
 
-    /// Why the prompt is being shown, which decides the line above the field.
+    /// Why the prompt is being shown, which decides the notice above the submit action.
     enum Notice: Equatable {
 
         /// No key has been supplied yet.
@@ -199,69 +220,62 @@ struct UptimeKeyPrompt: View {
 
         /// The Keychain refused the write.
         case storageFailed
+
+        /// The user asked to replace a key that is already stored.
+        case replacing
     }
 
     let notice: Notice
+    let canCancel: Bool
     let submit: (String) -> Bool
+    let cancel: () -> Void
 
     @State private var key = ""
-
-    @Environment(\.pixelMetrics) private var metrics
+    @FocusState private var isFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: metrics(14)) {
-            PixelLabel("UPTIME", size: 13, tracking: 2, color: PixelTheme.bright)
-
-            PixelLabel(noticeText, size: 10, tracking: 2, color: noticeColour)
-
-            VStack(alignment: .leading, spacing: metrics(8)) {
-                SecureField("", text: $key)
-                    .font(PixelFont.regular(metrics(13)))
-                    .foregroundStyle(PixelTheme.bright)
-                    .tint(PixelTheme.bright)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .textContentType(.password)
-                    .submitLabel(.done)
-                    .onSubmit(save)
-
-                Rectangle()
-                    .fill(PixelTheme.separator)
-                    .frame(height: metrics(1))
-            }
-
-            Button(action: save) {
-                PixelLabel("SAVE", size: 10, tracking: 2, color: PixelTheme.bright)
-                    .padding(.vertical, metrics(9))
-                    .padding(.horizontal, metrics(12))
-                    .overlay {
-                        Rectangle()
-                            .stroke(PixelTheme.separator, lineWidth: metrics(1))
-                    }
-            }
-            .buttonStyle(.plain)
-            .disabled(trimmedKey.isEmpty)
-            .opacity(trimmedKey.isEmpty ? 0.4 : 1)
-
-            PixelLabel("STORED IN THE KEYCHAIN ONLY", size: 10, tracking: 2, color: PixelTheme.faint)
+        CredentialPromptScaffold(
+            eyebrow: "UPTIME",
+            title: "API KEY",
+            explanation: [
+                "BEARER TOKEN FOR THE",
+                "LEVO STUDIO UPTIME API.",
+                "GET ONE FROM YOUR ACCOUNT",
+                "SETTINGS ON THE UPTIME SITE."
+            ],
+            notice: scaffoldNotice,
+            submitTitle: "SAVE KEY",
+            isSubmitEnabled: !trimmedKey.isEmpty,
+            submit: save,
+            cancel: canCancel ? cancel : nil
+        ) {
+            PixelCredentialField(
+                title: "KEY",
+                placeholder: "PASTE OR TYPE YOUR KEY",
+                privacy: .secret,
+                text: $key,
+                isFocused: $isFocused,
+                onSubmit: save
+            )
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { isFocused = true }
     }
 
     private var trimmedKey: String {
         key.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var noticeText: String {
+    private var scaffoldNotice: CredentialPromptScaffold<PixelCredentialField>.Notice? {
         switch notice {
-        case .firstUse: "ENTER YOUR API KEY"
-        case .keyRejected: "KEY REJECTED — ENTER IT AGAIN"
-        case .storageFailed: "KEYCHAIN WRITE FAILED — TRY AGAIN"
+        case .firstUse:
+            nil
+        case .replacing:
+            .init(text: "EXISTING KEY KEPT UNTIL SAVED.", isFailure: false)
+        case .keyRejected:
+            .init(text: "KEY REJECTED. ENTER IT AGAIN.", isFailure: true)
+        case .storageFailed:
+            .init(text: "KEYCHAIN WRITE FAILED. RETRY.", isFailure: true)
         }
-    }
-
-    private var noticeColour: Color {
-        notice == .firstUse ? PixelTheme.faint : PixelTheme.statusDown
     }
 
     /// Hands the typed key over, clearing the field only once it is safely stored.
@@ -270,6 +284,7 @@ struct UptimeKeyPrompt: View {
         guard !value.isEmpty else { return }
         if submit(value) {
             key = ""
+            isFocused = false
         }
     }
 }
@@ -297,6 +312,9 @@ final class UptimeModel {
 
     /// Whether the user still has to supply a key.
     private(set) var needsKey: Bool
+
+    /// Whether the user asked to replace a key that is already stored.
+    private(set) var isChangingKey = false
 
     /// Why the key prompt is on screen.
     private(set) var promptNotice: UptimeKeyPrompt.Notice = .firstUse
@@ -335,6 +353,33 @@ final class UptimeModel {
         needsKey = keychain.string(for: .uptimeAPIKey) == nil
     }
 
+    /// Whether the key prompt is on screen, either because no key is stored or
+    /// because the user asked to replace the one that is.
+    var isPromptVisible: Bool { needsKey || isChangingKey }
+
+    /// Whether the prompt may be dismissed without saving.
+    ///
+    /// Only when a key is already stored: the screen has nothing to fall back to
+    /// otherwise.
+    var canCancelKeyChange: Bool { isChangingKey }
+
+    /// Opens the prompt so the user can replace the stored key.
+    ///
+    /// The field opens empty — a stored secret is never pre-filled into a field that
+    /// can be revealed — and the stored item is left untouched until a new value is
+    /// saved.
+    func beginKeyChange() {
+        promptNotice = .replacing
+        isChangingKey = true
+    }
+
+    /// Closes a key change without touching the stored key.
+    func cancelKeyChange() {
+        guard isChangingKey else { return }
+        isChangingKey = false
+        promptNotice = .firstUse
+    }
+
     /// The time of the last successful check, or placeholder dashes before the first.
     var lastCheckText: String {
         guard let lastSuccess else { return "--:--:--" }
@@ -363,7 +408,6 @@ final class UptimeModel {
     /// cleared field behind a button that appears to do nothing.
     ///
     /// - Returns: `true` when the key reached the Keychain.
-    @discardableResult
     func store(key: String) -> Bool {
         guard keychain.set(key, for: .uptimeAPIKey) else {
             promptNotice = .storageFailed
@@ -371,6 +415,7 @@ final class UptimeModel {
         }
         promptNotice = .firstUse
         needsKey = false
+        isChangingKey = false
         lastAttempt = nil
         return true
     }

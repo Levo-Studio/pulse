@@ -424,7 +424,9 @@ struct GitHubHeaderRowTests {
             "PUBLIC PR OPENED: 12",
             "PUBLIC PR MERGED: 12",
             "PUBLIC PR: 12 OPENED 10 MERGED",
-            "NO SUCH USER - TAP TO CHANGE",
+            "NO SUCH USER",
+            "NO DATA FOR THIS ACCOUNT",
+            "OFFLINE",
             "OFFLINE - SHOWING LAST DATA",
             "NO COUNT FOR TODAY"
         ]
@@ -437,6 +439,12 @@ struct GitHubHeaderRowTests {
         // The freshness line is a size smaller than the rest of the block.
         #expect(
             GitHubLabelMeasurement.width(of: "LAST CHECK: 23:59:59", size: 9, tracking: 2)
+                <= GitHubHeaderRow.contentWidth
+        )
+
+        // The change-username action sits under the same block at a wider tracking.
+        #expect(
+            GitHubLabelMeasurement.width(of: "CHANGE USERNAME", size: 10, tracking: 3)
                 <= GitHubHeaderRow.contentWidth
         )
     }

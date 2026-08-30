@@ -106,13 +106,15 @@ at the top, oldest week on the left, today in the last column. Below the grid,
 ramp; today's cell alone uses a green ramp.
 
 On first use the screen asks for a GitHub username. It is stored in the Keychain.
-Tapping the username in the header brings the prompt back, so you can point the
-screen at a different account. The calendar is refreshed every 10 minutes, and
-only while this screen is the one on display.
+`CHANGE USERNAME`, at the foot of the screen, brings the prompt back so you can
+point the screen at a different account. It is the only route into the prompt:
+the handle in the header and the status line are plain labels that report, never
+controls. The calendar is refreshed every 10 minutes, and only while this screen
+is the one on display.
 
 When something goes wrong, the screen says so in a single line in place of the
-count and keeps whatever data it last had: `NO SUCH USER - TAP TO CHANGE`,
-`NO DATA - TAP TO CHANGE`, `OFFLINE - SHOWING LAST DATA`. If today parsed but
+count and keeps whatever data it last had: `NO SUCH USER`,
+`NO DATA FOR THIS ACCOUNT`, `OFFLINE`, `OFFLINE - SHOWING LAST DATA`. If today parsed but
 without an exact figure, the headline shows `--` rather than a number, and the
 line reads `NO COUNT FOR TODAY`. See
 [Known fragility](#known-fragility-the-github-contribution-source) for why this
@@ -136,9 +138,12 @@ and grey means no usable state was reported. The list scrolls if it is longer
 than the frame.
 
 On first open the screen asks for your own uptime API key. The field is masked,
-the value goes straight to the **Keychain** and is never held anywhere else, and
-the prompt says so. The list then refreshes every 20 seconds — but only while
-this screen is the active page and the app is in the foreground.
+with a `SHOW` control for checking it, the value goes straight to the **Keychain**
+and is never held anywhere else, and the prompt says so. `CHANGE API KEY`, at the
+foot of the screen, reopens the prompt when the key is rotated — without it the
+only way back would be a key the API has already rejected. The list refreshes
+every 20 seconds — but only while this screen is the active page and the app is
+in the foreground.
 
 Both the countdown and the poll schedule are derived from the timestamp of the
 last attempt rather than from an accumulating counter, so paging away for a
@@ -251,10 +256,23 @@ device, once:
 - **GitHub screen** — asks for a GitHub username on first open. Enter your own
   handle; only the syntax is validated locally (1–39 ASCII letters, digits and
   hyphens, not leading or trailing). It is stored in the **Keychain**, and can be
-  changed later by tapping the username in the header.
-- **Uptime screen** — asks for an API key on first open, in a masked field. It is
-  stored in the **Keychain** and is never logged, never held in the model, and
-  never included in an error message.
+  changed later with `CHANGE USERNAME` at the foot of the screen.
+- **Uptime screen** — asks for an API key on first open, in a masked field with a
+  `SHOW` control so a long opaque token can be checked before it is submitted. It
+  is stored in the **Keychain** and is never logged, never held in the model, and
+  never included in an error message. It can be replaced later with
+  `CHANGE API KEY` at the foot of the screen.
+
+Both prompts open with an empty field — a stored value is never pre-filled, least
+of all into a field that can be revealed — and both can be backed out of with
+`CANCEL` once something is stored. Opening or cancelling a change touches nothing:
+the stored item is overwritten only by a successful save. On first use there is
+no `CANCEL`, because there is nothing to fall back to.
+
+What you type is drawn in a monospaced system face at its natural case, not in
+the pixel typeface the rest of the app uses. The pixel face is uppercase-oriented,
+and a case-sensitive key rendered in it cannot be read back or checked. Every
+label around the field stays in the pixel face.
 
 Neither value is ever written to `UserDefaults`, to a plist, or to source. Both
 are stored under the app's bundle identifier with
@@ -410,7 +428,7 @@ So the design decision is deliberate and worth keeping if you touch this code:
 The point of that second rule is the failure mode. Without it, a tooltip change
 would leave the day cells parsing perfectly and the screen would confidently
 display a year of fabricated numbers. With it, a wholesale change surfaces as a
-**visible parse failure** — `NO DATA - TAP TO CHANGE` — and a partial one simply
+**visible parse failure** — `NO DATA FOR THIS ACCOUNT` — and a partial one simply
 leaves the unverifiable days out, so today's headline falls back to `--` and
 `NO COUNT FOR TODAY` rather than to a plausible invention. Either way it is
 honest, and either way it is the signal that this section of the README has come
