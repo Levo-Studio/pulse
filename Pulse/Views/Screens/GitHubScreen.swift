@@ -57,6 +57,13 @@ public struct GitHubScreen: View {
             }
         }
         .task { model.restoreUsername() }
+        // The settings screen writes the same Keychain item, so the stored name is
+        // re-read whenever this screen is paged back into view. Without it a name
+        // changed in settings would only take effect on the next launch.
+        .onChange(of: activeScreen) {
+            guard activeScreen == .gitHub else { return }
+            model.adoptStoredUsername()
+        }
         .onAppear { synchroniseTicker() }
         .onDisappear { ticker.stop() }
         .onChange(of: isHeaderTimeVisible) { synchroniseTicker() }
@@ -477,6 +484,30 @@ final class GitHubActivityModel {
         guard !hasRestoredUsername else { return }
         username = store.string(for: .gitHubUsername)
         hasRestoredUsername = true
+    }
+
+    /// Re-reads the stored username, adopting a change made on another screen.
+    ///
+    /// The settings screen writes the same Keychain item, so the two can disagree
+    /// while this screen is paged away. A name that has not changed costs nothing; a
+    /// name that has drops the previous account's data rather than leaving one
+    /// account's heatmap under another account's handle, exactly as `save(username:)`
+    /// does.
+    ///
+    /// Does nothing before the first read, which `restoreUsername()` owns: adopting
+    /// `nil` from a Keychain that has not been consulted yet would be indistinguishable
+    /// from the user clearing the name.
+    func adoptStoredUsername() {
+        guard hasRestoredUsername else { return }
+        let stored = store.string(for: .gitHubUsername)
+        guard stored != username else { return }
+
+        username = stored
+        contributions = .empty
+        lastFailure = nil
+        activity = nil
+        eventsFailure = nil
+        eventsBackoffUntil = nil
     }
 
     /// The headline: GitHub's exact count for today, or `nil` when there is no exact

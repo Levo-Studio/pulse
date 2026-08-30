@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The four screens of the display, in swipe order.
+/// The five screens of the display, in swipe order.
 public enum PulseScreen: Int, CaseIterable, Identifiable, Sendable {
 
     /// Time of day with the date below it.
@@ -15,11 +15,14 @@ public enum PulseScreen: Int, CaseIterable, Identifiable, Sendable {
     /// Levo Studio service uptime.
     case uptime
 
+    /// Stored credentials and the clock's display preferences.
+    case settings
+
     /// Stable identity for `ForEach`.
     public var id: Int { rawValue }
 }
 
-/// The root of the app: four full-screen views the user pages through horizontally.
+/// The root of the app: five full-screen views the user pages through horizontally.
 ///
 /// The pager publishes the screen currently in view through the environment, so a
 /// screen that polls the network can stop polling the moment it is paged away.
@@ -29,6 +32,14 @@ public enum PulseScreen: Int, CaseIterable, Identifiable, Sendable {
 public struct PulsePager: View {
 
     @State private var activeScreen: PulseScreen = .clock
+
+    /// The clock's two display preferences, owned here rather than by a page.
+    ///
+    /// Two screens read and write them — the clock through its double taps, settings
+    /// through its rows — and `TabView` may tear either page down, so the object has
+    /// to outlive both. One instance means the two surfaces cannot drift apart: a
+    /// change on one is visible on the other without a relaunch.
+    @State private var preferences = ClockPreferences()
 
     /// Creates the pager.
     public init() {}
@@ -44,7 +55,7 @@ public struct PulsePager: View {
             .tabViewStyle(.page(indexDisplayMode: .never))
             .environment(\.pixelMetrics, PixelMetrics(size: fullFrame(proxy)))
             .environment(\.activeScreen, activeScreen)
-            // Only the container regions are ignored, so the four display screens are
+            // Only the container regions are ignored, so the five display screens are
             // full-bleed to the bezel while the keyboard region keeps its inset. An
             // unqualified `ignoresSafeArea()` here also swallowed `.keyboard`, which
             // left every descendant — including the credential prompts — with no
@@ -73,10 +84,11 @@ public struct PulsePager: View {
     @ViewBuilder
     private func view(for screen: PulseScreen) -> some View {
         switch screen {
-        case .clock: ClockScreen()
+        case .clock: ClockScreen(preferences: preferences)
         case .stopwatch: StopwatchScreen()
         case .gitHub: GitHubScreen()
         case .uptime: UptimeScreen()
+        case .settings: SettingsScreen(preferences: preferences)
         }
     }
 }
@@ -101,8 +113,8 @@ extension EnvironmentValues {
 /// padding.
 ///
 /// The reference lays its centred screens — clock and stopwatch — out around the
-/// vertical middle, and its list screens — GitHub and uptime — from a 70 pt top
-/// inset. `placement` selects between the two.
+/// vertical middle, and its list screens — GitHub, uptime and settings — from a 70 pt
+/// top inset. `placement` selects between the two.
 public struct PixelScreenBackdrop<Content: View>: View {
 
     /// How the content sits in the frame.
@@ -111,8 +123,8 @@ public struct PixelScreenBackdrop<Content: View>: View {
         /// Centred vertically, as on the clock and stopwatch screens.
         case centred
 
-        /// Flush to the top, below the reference's 70 pt inset, as on the GitHub
-        /// and uptime screens.
+        /// Flush to the top, below the reference's 70 pt inset, as on the GitHub,
+        /// uptime and settings screens.
         case topInset
     }
 

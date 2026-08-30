@@ -30,6 +30,13 @@ public struct UptimeScreen: View {
             guard isPolling else { return }
             await model.poll()
         }
+        // The settings screen writes the same Keychain item, so a key stored there
+        // while this screen was waiting for one is picked up as soon as the screen is
+        // paged back into view, rather than on the next launch.
+        .onChange(of: activeScreen) {
+            guard activeScreen == .uptime else { return }
+            model.adoptStoredKey()
+        }
     }
 
     /// Whether the poll loop should be running: this screen is in view, the app is
@@ -379,6 +386,20 @@ final class UptimeModel {
     func beginKeyChange() {
         promptNotice = .replacing
         isChangingKey = true
+    }
+
+    /// Re-checks whether a key is stored, adopting one saved on another screen.
+    ///
+    /// The settings screen writes the same Keychain item. Only the presence of the
+    /// item is consulted, never its value, and only the "a key has appeared" direction
+    /// is acted on: a key that has vanished is left to the request that fails on it,
+    /// which is the path that already knows how to re-prompt.
+    func adoptStoredKey() {
+        guard needsKey, !isChangingKey else { return }
+        guard keychain.hasValue(for: .uptimeAPIKey) else { return }
+        needsKey = false
+        promptNotice = .firstUse
+        lastAttempt = nil
     }
 
     /// Closes a key change without touching the stored key.
