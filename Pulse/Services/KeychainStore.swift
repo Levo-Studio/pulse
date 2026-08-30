@@ -54,7 +54,12 @@ public struct KeychainStore {
         guard let data = value.data(using: .utf8) else { return false }
 
         let query = baseQuery(for: key)
-        let attributes: [String: Any] = [kSecValueData as String: data]
+        // Repeated on the update path so an item written by an earlier build is
+        // migrated to the stricter accessibility class rather than keeping its own.
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        ]
 
         let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
         if updateStatus == errSecSuccess { return true }
@@ -62,7 +67,7 @@ public struct KeychainStore {
 
         var insert = query
         insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         return SecItemAdd(insert as CFDictionary, nil) == errSecSuccess
     }
 

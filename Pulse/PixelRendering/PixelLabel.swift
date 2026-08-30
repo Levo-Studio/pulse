@@ -38,10 +38,11 @@ public struct PixelLabel: View {
             .font(PixelFont.regular(metrics(size)))
             .tracking(metrics(tracking))
             .foregroundStyle(color)
-            // The pixel grid must not reflow: a clipped glyph is a bug, a wrapped
-            // line is a broken layout.
+            // The pixel grid must not reflow, so a label never wraps. It keeps its
+            // intrinsic width instead of being compressed, which would break the
+            // glyph rhythm; an overlong string is a layout bug to fix at the source.
             .lineLimit(1)
-            .fixedSize(horizontal: false, vertical: true)
+            .fixedSize(horizontal: true, vertical: true)
     }
 }
 
