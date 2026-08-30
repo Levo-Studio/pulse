@@ -87,29 +87,30 @@ public struct CredentialPromptScaffold<Field: View>: View {
         ZStack {
             PixelTheme.background.ignoresSafeArea()
 
-            ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 0) {
-                    heading
-                        .modifier(Entrance(isVisible: hasAppeared, order: 0, reduceMotion: reduceMotion))
+            VStack(alignment: .leading, spacing: 0) {
+                // The block is anchored to the bottom of the frame rather than the top:
+                // it keeps the field and the submit control within thumb reach, and it
+                // is what lets SwiftUI's keyboard avoidance lift the whole prompt as
+                // one piece, so the keyboard can never cover the submit control.
+                Spacer(minLength: metrics(40))
 
-                    field
-                        .padding(.top, metrics(46))
-                        .modifier(Entrance(isVisible: hasAppeared, order: 1, reduceMotion: reduceMotion))
+                heading
+                    .modifier(Entrance(isVisible: hasAppeared, order: 0, reduceMotion: reduceMotion))
 
-                    noticeSlot
-                        .padding(.top, metrics(18))
+                field
+                    .padding(.top, metrics(40))
+                    .modifier(Entrance(isVisible: hasAppeared, order: 1, reduceMotion: reduceMotion))
 
-                    actions
-                        .padding(.top, metrics(14))
-                        .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, metrics(26))
-                .padding(.top, metrics(96))
-                .padding(.bottom, metrics(40))
+                noticeSlot
+                    .padding(.top, metrics(18))
+
+                actions
+                    .padding(.top, metrics(14))
+                    .modifier(Entrance(isVisible: hasAppeared, order: 2, reduceMotion: reduceMotion))
             }
-            .scrollIndicators(.hidden)
-            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.horizontal, metrics(26))
+            .padding(.bottom, metrics(28))
         }
         .onAppear { hasAppeared = true }
     }
@@ -181,7 +182,7 @@ public struct CredentialPromptScaffold<Field: View>: View {
             if let cancel {
                 Button(action: cancel) {
                     PixelLabel("CANCEL", size: 9, tracking: 4, color: PixelTheme.faint)
-                        .frame(maxWidth: .infinity)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .frame(height: 44)
                         .contentShape(Rectangle())
                 }
@@ -194,7 +195,6 @@ public struct CredentialPromptScaffold<Field: View>: View {
                 tracking: 2,
                 color: PixelTheme.faint
             )
-            .frame(maxWidth: .infinity, alignment: .center)
             .padding(.top, cancel == nil ? metrics(24) : metrics(4))
         }
     }

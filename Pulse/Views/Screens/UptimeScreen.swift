@@ -238,8 +238,8 @@ struct UptimeKeyPrompt: View {
             eyebrow: "UPTIME",
             title: "API KEY",
             explanation: [
-                "BEARER TOKEN FOR THE LEVO",
-                "STUDIO UPTIME API.",
+                "BEARER TOKEN FOR THE",
+                "LEVO STUDIO UPTIME API.",
                 "GET ONE FROM YOUR ACCOUNT",
                 "SETTINGS ON THE UPTIME SITE."
             ],

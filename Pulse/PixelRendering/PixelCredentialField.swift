@@ -71,7 +71,9 @@ public struct PixelCredentialField: View {
             HStack(alignment: .center, spacing: metrics(12)) {
                 PixelLabel(title, size: 9, tracking: 3, color: PixelTheme.muted)
                 Spacer(minLength: metrics(12))
-                if privacy == .secret {
+                // The reveal only makes sense once there is something to reveal, and an
+                // empty field should not carry the brightest control on the screen.
+                if privacy == .secret, !text.wrappedValue.isEmpty {
                     revealToggle
                 }
             }
@@ -97,7 +99,10 @@ public struct PixelCredentialField: View {
         .overlay {
             Rectangle()
                 .stroke(
-                    isFocused.wrappedValue ? PixelTheme.muted : PixelTheme.separator,
+                    // Focus is stated in the palette's own terms: the hairline goes from
+                    // the list separator to bright, which is how the reference marks
+                    // what is current.
+                    isFocused.wrappedValue ? PixelTheme.bright : PixelTheme.separator,
                     lineWidth: max(1, metrics(1))
                 )
         }
