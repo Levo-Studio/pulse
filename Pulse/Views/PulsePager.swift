@@ -42,14 +42,32 @@ public struct PulsePager: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
-            .environment(\.pixelMetrics, PixelMetrics(size: proxy.size))
+            .environment(\.pixelMetrics, PixelMetrics(size: fullFrame(proxy)))
             .environment(\.activeScreen, activeScreen)
+            // Only the container regions are ignored, so the four display screens are
+            // full-bleed to the bezel while the keyboard region keeps its inset. An
+            // unqualified `ignoresSafeArea()` here also swallowed `.keyboard`, which
+            // left every descendant — including the credential prompts — with no
+            // keyboard inset to be lifted by, so the keyboard covered the field and
+            // the submit control.
+            .ignoresSafeArea(.container)
         }
-        .background(PixelTheme.background)
-        .ignoresSafeArea()
+        .background(PixelTheme.background.ignoresSafeArea())
         .statusBarHidden()
         .preferredColorScheme(.dark)
         .persistentSystemOverlays(.hidden)
+    }
+
+    /// The size of the whole frame, safe-area insets included.
+    ///
+    /// The geometry reader is laid out inside the safe area, so its own size shrinks
+    /// while the keyboard is up. Type is scaled from the full frame instead, so the
+    /// display never resizes itself when a keyboard appears or goes away.
+    private func fullFrame(_ proxy: GeometryProxy) -> CGSize {
+        CGSize(
+            width: proxy.size.width + proxy.safeAreaInsets.leading + proxy.safeAreaInsets.trailing,
+            height: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+        )
     }
 
     @ViewBuilder

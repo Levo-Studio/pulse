@@ -88,10 +88,11 @@ public struct CredentialPromptScaffold<Field: View>: View {
             PixelTheme.background.ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 0) {
-                // The block is anchored to the bottom of the frame rather than the top:
-                // it keeps the field and the submit control within thumb reach, and it
-                // is what lets SwiftUI's keyboard avoidance lift the whole prompt as
-                // one piece, so the keyboard can never cover the submit control.
+                // The block is anchored to the bottom of the frame rather than the top,
+                // which keeps the field and the submit control within thumb reach.
+                // Clearing the keyboard is not this view's doing: it depends on the
+                // keyboard safe-area inset surviving down from `PulsePager`, which is
+                // why the pager ignores only the container regions.
                 Spacer(minLength: metrics(40))
 
                 heading
