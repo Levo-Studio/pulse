@@ -38,7 +38,14 @@ public struct ClockScreen: View {
     public init() {}
 
     public var body: some View {
-        PixelScreenBackdrop(spacing: 20) {
+        // The stack carries no spacing of its own and every gap is stated as top
+        // padding on the line below it. That is not a style choice: a `VStack`
+        // still charges its spacing for a conditional child whose condition is
+        // false, so with `spacing: 20` an absent temperature left a residual gap
+        // and shifted the date down. With the gaps in the padding, a line that is
+        // not drawn costs nothing, and the two-line clock renders exactly as it
+        // did before the temperature existed.
+        PixelScreenBackdrop(spacing: 0) {
             PixelLabel(
                 preferences.showsSeconds ? ticker.reading.timeWithSeconds : ticker.reading.time,
                 size: preferences.showsSeconds ? ClockTimeMetrics.secondsSize : ClockTimeMetrics.size,
@@ -64,13 +71,11 @@ public struct ClockScreen: View {
                 tracking: 5,
                 color: PixelTheme.muted
             )
+            .padding(.top, metrics(ClockLayout.dateGap))
 
             if let temperature = weather.temperatureText {
-                // The reference gives this line `margin-top: 26` on top of the
-                // frame's 20 unit gap, so the drop below the date is deliberately
-                // larger than the drop from the time to the date.
                 weatherLine(temperature: temperature)
-                    .padding(.top, metrics(26))
+                    .padding(.top, metrics(ClockLayout.temperatureGap))
             }
         }
         .onAppear { synchroniseTicker() }
@@ -147,6 +152,25 @@ public struct ClockScreen: View {
             ticker.stop()
         }
     }
+}
+
+/// The vertical gaps between the clock's lines, in design-reference units.
+///
+/// The reference frame lays its three lines out with `gap: 20` on the flex
+/// container and an extra `margin-top: 26` on the temperature, so the drop from
+/// the date to the temperature is deliberately larger than the drop from the time
+/// to the date. Both numbers are stated here as top padding on the line below the
+/// gap rather than as stack spacing, because a `VStack` charges its spacing for a
+/// conditional child even when the condition is false: with the gap in the
+/// spacing, an absent temperature left a residual gap behind and moved the date.
+enum ClockLayout {
+
+    /// Space between the time and the date — the reference's flex `gap`.
+    static let dateGap: CGFloat = 20
+
+    /// Space between the date and the temperature: the same flex `gap` plus the
+    /// temperature's own `margin-top: 26`.
+    static let temperatureGap: CGFloat = dateGap + 26
 }
 
 /// The measurements of the weather line, in design-reference units.

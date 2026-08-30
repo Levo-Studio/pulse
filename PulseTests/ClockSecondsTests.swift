@@ -158,6 +158,41 @@ struct ClockPreferencesTests {
     }
 }
 
+/// Verification of the vertical gaps between the clock's lines.
+///
+/// The gaps are stated as padding rather than as stack spacing so that an absent
+/// temperature costs nothing, which was verified by comparing the rendered screen
+/// against the two-line clock. These checks pin the numbers the reference asks
+/// for.
+struct ClockLayoutTests {
+
+    @Test("The time-to-date gap is the reference's flex gap")
+    func dateGap() {
+        #expect(ClockLayout.dateGap == 20)
+    }
+
+    @Test("The date-to-temperature gap adds the reference's own top margin")
+    func temperatureGap() {
+        // `gap: 20` on the container plus `margin-top: 26` on the temperature.
+        #expect(ClockLayout.temperatureGap == 46)
+        #expect(ClockLayout.temperatureGap > ClockLayout.dateGap)
+    }
+
+    @Test("The weather line fits the content width at its widest")
+    func weatherLineFits() {
+        #expect(WeatherLineMetrics.widestWidth < ClockTimeMetrics.contentWidth)
+    }
+
+    @Test("The condition figure is no taller than the line it sits on")
+    func iconFitsTheLine() {
+        let iconHeight = CGFloat(PixelWeatherIcon.rows) * WeatherLineMetrics.iconCell
+        // The line's type is size 16, whose natural box is 1.28 em.
+        #expect(iconHeight <= 16 * 1.28)
+        // And taller than its cap height, so it does not read as a stray dot.
+        #expect(iconHeight > 16 * 0.625)
+    }
+}
+
 /// Verification of the measurement that decides the size of the time readout.
 ///
 /// These numbers are the reason the seconds variant does not use the reference's
